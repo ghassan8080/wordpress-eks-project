@@ -1,0 +1,285 @@
+# .github/workflows/deploy-wordpress.yml
+name: Deploy WordPress
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Deploy Infrastructure"]
+    types:
+      - completed
+    branches:
+      - main
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
+jobs:
+  deploy-wordpress:
+    name: Deploy WordPress to EKS
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Get cluster information from SSM
+      id: cluster_info
+      run: |
+        CLUSTER_NAME=$(aws ssm get-parameter --name "/wordpress-eks/prod/eks/cluster-name" --query 'Parameter.Value' --output text)
+        CLUSTER_ENDPOINT=$(aws ssm get-parameter --name "/wordpress-eks/prod/eks/cluster-endpoint" --query 'Parameter.Value' --output text)
+        EFS_FILE_SYSTEM_ID=$(aws ssm get-parameter --name "/wordpress-eks/prod/efs/file-system-id" --query 'Parameter.Value' --output text)
+        
+        echo "cluster_name=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+        echo "cluster_endpoint=$CLUSTER_ENDPOINT" >> $GITHUB_OUTPUT
+        echo "efs_file_system_id=$EFS_FILE_SYSTEM_ID" >> $GITHUB_OUTPUT
+
+    - name: Update kubeconfig
+      run: |
+        aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ steps.cluster_info.outputs.cluster_name }}
+
+    - name: Get database credentials from SSM
+      id: db_credentials
+      run: |
+        MYSQL_ROOT_PASSWORD=$(aws ssm get-parameter --name "/wordpress-eks/prod/mysql/root-password" --with-decryption --query 'Parameter.Value' --output text)
+        MYSQL_PASSWORD=$(aws ssm get-parameter --name "/wordpress-eks/prod/mysql/wordpress-password" --with-decryption --query 'Parameter.Value' --output text)
+        
+        echo "::add-mask::$MYSQL_ROOT_PASSWORD"
+        echo "::add-mask::$MYSQL_PASSWORD"
+        
+        echo "mysql_root_password=$MYSQL_ROOT_PASSWORD" >> $GITHUB_OUTPUT
+        echo "mysql_password=$MYSQL_PASSWORD" >> $GITHUB_OUTPUT
+
+    - name: Install kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'v1.28.0'
+
+    - name: Create namespace
+      run: |
+        kubectl apply -f k8s-manifests/namespace.yaml
+
+    - name: Setup EFS Storage Class
+      run: |
+        # Replace EFS file system ID in storage class
+        sed -i "s/EFS_FILE_SYSTEM_ID_PLACEHOLDER/${{ steps.cluster_info.outputs.efs_file_system_id }}/g" k8s-manifests/efs/efs-storageclass.yaml
+        kubectl apply -f k8s-manifests/efs/efs-storageclass.yaml
+
+    - name: Create MySQL secrets
+      run: |
+        # Replace placeholders in secret file
+        sed -i "s/MYSQL_ROOT_PASSWORD_PLACEHOLDER/${{ steps.db_credentials.outputs.mysql_root_password }}/g" k8s-manifests/mysql/mysql-secret.yaml
+        sed -i "s/MYSQL_PASSWORD_PLACEHOLDER/${{ steps.db_credentials.outputs.mysql_password }}/g" k8s-manifests/mysql/mysql-secret.yaml
+        
+        kubectl apply -f k8s-manifests/mysql/mysql-secret.yaml
+
+    - name: Deploy MySQL
+      run: |
+        kubectl apply -f k8s-manifests/mysql/
+        
+        # Wait for MySQL to be ready
+        echo "Waiting for MySQL to be ready..."
+        kubectl wait --for=condition=ready pod -l app=mysql -n wordpress --timeout=300s
+
+    - name: Deploy Redis
+      run: |
+        kubectl apply -f k8s-manifests/redis/redis-deployment.yaml
+        
+        # Wait for Redis to be ready
+        echo "Waiting for Redis to be ready..."
+        kubectl wait --for=condition=ready pod -l app=redis -n wordpress --timeout=120s
+
+    - name: Setup AWS Load Balancer Controller IAM Role
+      run: |
+        # Download IAM policy for AWS Load Balancer Controller
+        curl -o iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
+        
+        # Create IAM policy if it doesn't exist
+        aws iam create-policy \
+          --policy-name AWSLoadBalancerControllerIAMPolicy \
+          --policy-document file://iam_policy.json \
+          --description "IAM policy for AWS Load Balancer Controller" || true
+        
+        # Get OIDC issuer URL
+        OIDC_ISSUER=$(aws eks describe-cluster --name ${{ steps.cluster_info.outputs.cluster_name }} --query "cluster.identity.oidc.issuer" --output text)
+        OIDC_ID=$(echo $OIDC_ISSUER | cut -d '/' -f 5)
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        
+        # Create trust policy
+        cat > trust-policy.json << EOF
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_ISSUER#https://}"
+              },
+              "Action": "sts:AssumeRoleWithWebIdentity",
+              "Condition": {
+                "StringEquals": {
+                  "${OIDC_ISSUER#https://}:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller",
+                  "${OIDC_ISSUER#https://}:aud": "sts.amazonaws.com"
+                }
+              }
+            }
+          ]
+        }
+        EOF
+        
+        # Create IAM role
+        aws iam create-role \
+          --role-name AmazonEKSLoadBalancerControllerRole \
+          --assume-role-policy-document file://trust-policy.json \
+          --description "Amazon EKS Load Balancer Controller role" || true
+        
+        # Attach policy to role
+        aws iam attach-role-policy \
+          --role-name AmazonEKSLoadBalancerControllerRole \
+          --policy-arn arn:aws:iam::${ACCOUNT_ID}:policy/AWSLoadBalancerControllerIAMPolicy
+
+    - name: Install AWS Load Balancer Controller
+      run: |
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        VPC_ID=$(aws ssm get-parameter --name "/wordpress-eks/prod/vpc/vpc-id" --query 'Parameter.Value' --output text 2>/dev/null || echo "")
+        
+        if [ -z "$VPC_ID" ]; then
+          # Get VPC ID from EKS cluster if not in SSM
+          VPC_ID=$(aws eks describe-cluster --name ${{ steps.cluster_info.outputs.cluster_name }} --query "cluster.resourcesVpcConfig.vpcId" --output text)
+        fi
+        
+        # Replace placeholders in AWS Load Balancer Controller manifest
+        sed -i "s/AWS_LOAD_BALANCER_CONTROLLER_ROLE_ARN_PLACEHOLDER/arn:aws:iam::${ACCOUNT_ID}:role\/AmazonEKSLoadBalancerControllerRole/g" k8s-manifests/aws-load-balancer-controller.yaml
+        sed -i "s/CLUSTER_NAME_PLACEHOLDER/${{ steps.cluster_info.outputs.cluster_name }}/g" k8s-manifests/aws-load-balancer-controller.yaml
+        sed -i "s/VPC_ID_PLACEHOLDER/${VPC_ID}/g" k8s-manifests/aws-load-balancer-controller.yaml
+        sed -i "s/AWS_REGION_PLACEHOLDER/${{ env.AWS_REGION }}/g" k8s-manifests/aws-load-balancer-controller.yaml
+        
+        # Create certificate for webhook
+        kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/v1.13.1/cert-manager.yaml
+        
+        # Wait for cert-manager to be ready
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=300s
+        
+        # Apply AWS Load Balancer Controller
+        kubectl apply -f k8s-manifests/aws-load-balancer-controller.yaml
+        
+        # Wait for controller to be ready
+        kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=aws-load-balancer-controller -n kube-system --timeout=300s
+
+    - name: Deploy WordPress
+      run: |
+        kubectl apply -f k8s-manifests/wordpress/wordpress-pvc.yaml
+        kubectl apply -f k8s-manifests/wordpress/wordpress-deployment.yaml
+        kubectl apply -f k8s-manifests/wordpress/wordpress-service.yaml
+        
+        # Wait for WordPress to be ready
+        echo "Waiting for WordPress to be ready..."
+        kubectl wait --for=condition=ready pod -l app=wordpress -n wordpress --timeout=300s
+
+    - name: Create Ingress
+      run: |
+        # Replace placeholders in ingress - you may want to add your domain and certificate ARN
+        # For now, we'll use a basic ingress without SSL
+        cat > k8s-manifests/wordpress/wordpress-ingress-basic.yaml << EOF
+        apiVersion: networking.k8s.io/v1
+        kind: Ingress
+        metadata:
+          name: wordpress-ingress
+          namespace: wordpress
+          annotations:
+            kubernetes.io/ingress.class: alb
+            alb.ingress.kubernetes.io/scheme: internet-facing
+            alb.ingress.kubernetes.io/target-type: ip
+            alb.ingress.kubernetes.io/healthcheck-path: /
+            alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+            alb.ingress.kubernetes.io/tags: Environment=prod,Project=wordpress-eks
+          labels:
+            app: wordpress
+        spec:
+          rules:
+          - http:
+              paths:
+              - path: /
+                pathType: Prefix
+                backend:
+                  service:
+                    name: wordpress-service
+                    port:
+                      number: 80
+        EOF
+        
+        kubectl apply -f k8s-manifests/wordpress/wordpress-ingress-basic.yaml
+
+    - name: Wait for Load Balancer
+      run: |
+        echo "Waiting for load balancer to be provisioned..."
+        kubectl wait --for=condition=ready ingress/wordpress-ingress -n wordpress --timeout=600s || true
+        
+        # Get load balancer URL
+        sleep 60  # Wait a bit more for ALB to be fully ready
+        LB_URL=$(kubectl get ingress wordpress-ingress -n wordpress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+        
+        if [ ! -z "$LB_URL" ]; then
+          echo "WordPress is accessible at: http://$LB_URL"
+          echo "load_balancer_url=http://$LB_URL" >> $GITHUB_OUTPUT
+        else
+          echo "Load balancer URL not yet available. Check AWS console for ALB status."
+        fi
+
+    - name: Display deployment status
+      run: |
+        echo "=== Deployment Status ==="
+        kubectl get all -n wordpress
+        echo ""
+        echo "=== Ingress Status ==="
+        kubectl get ingress -n wordpress
+        echo ""
+        echo "=== Service Status ==="
+        kubectl get svc -n wordpress
+        echo ""
+        echo "=== Storage Status ==="
+        kubectl get pv,pvc -n wordpress
+
+    - name: Run basic health checks
+      run: |
+        echo "=== Running Health Checks ==="
+        
+        # Check MySQL connectivity
+        echo "Checking MySQL..."
+        kubectl exec -n wordpress deployment/mysql -- mysqladmin ping -uroot -p${{ steps.db_credentials.outputs.mysql_root_password }} || echo "MySQL health check failed"
+        
+        # Check Redis connectivity
+        echo "Checking Redis..."
+        kubectl exec -n wordpress deployment/redis -- redis-cli ping || echo "Redis health check failed"
+        
+        # Check WordPress pods
+        echo "Checking WordPress pods..."
+        kubectl get pods -n wordpress -l app=wordpress
+        
+        # Check if WordPress is responding
+        echo "Checking WordPress application..."
+        for pod in $(kubectl get pods -n wordpress -l app=wordpress -o jsonpath='{.items[*].metadata.name}'); do
+          echo "Testing pod $pod..."
+          kubectl exec -n wordpress $pod -- curl -s -o /dev/null -w "%{http_code}" http://localhost/ || echo "WordPress health check failed for $pod"
+        done
+
+    - name: Save deployment info
+      run: |
+        mkdir -p deployment-info
+        kubectl get all -n wordpress > deployment-info/kubernetes-resources.txt
+        kubectl get ingress -n wordpress -o yaml > deployment-info/ingress-details.yaml
+        kubectl logs -n wordpress -l app=wordpress --tail=50 > deployment-info/wordpress-logs.txt || true
+        kubectl logs -n wordpress -l app=mysql --tail=50 > deployment-info/mysql-logs.txt || true
+
+    - name: Upload deployment artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-info
+        path: deployment-info/

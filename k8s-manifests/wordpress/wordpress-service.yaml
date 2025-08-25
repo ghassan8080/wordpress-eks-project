@@ -1,0 +1,17 @@
+# k8s-manifests/wordpress/wordpress-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress-service
+  namespace: wordpress
+  labels:
+    app: wordpress
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+    name: http
+  selector:
+    app: wordpress
+  type: ClusterIP
