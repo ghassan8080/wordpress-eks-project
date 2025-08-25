@@ -1,4 +1,5 @@
-# terraform/environments/prod/terraform.tfvars
+# terraform/environments/prod/terraform.tfvars.example
+# Copy this file to terraform.tfvars and customize the values
 
 # General Configuration
 project_name = "wordpress-eks"
@@ -15,25 +16,39 @@ private_subnet_cidrs   = ["10.0.10.0/24", "10.0.20.0/24"]
 
 # EKS Configuration
 kubernetes_version = "1.28"
-capacity_type     = "ON_DEMAND"
-instance_types    = ["t3.medium"]
+capacity_type     = "ON_DEMAND"        # Options: ON_DEMAND, SPOT
+instance_types    = ["t3.medium"]       # Adjust based on your needs
 ami_type         = "AL2_x86_64"
 disk_size        = 20
 
-# Node Group Scaling
+# Node Group Scaling - Adjust based on expected load
 desired_size = 2
 max_size     = 4
 min_size     = 1
 
-# SSH Access (optional - set to your key pair name if needed)
+# SSH Access (optional - uncomment and set if you need SSH access to nodes)
 # key_pair_name = "your-key-pair-name"
 
 # EFS Configuration
-efs_performance_mode                = "generalPurpose"
-efs_throughput_mode                = "bursting"
-efs_provisioned_throughput_in_mibps = 100
-efs_transition_to_ia               = "AFTER_30_DAYS"
-efs_backup_policy_status           = "ENABLED"
+efs_performance_mode                = "generalPurpose"  # Options: generalPurpose, maxIO
+efs_throughput_mode                = "bursting"         # Options: bursting, provisioned
+efs_provisioned_throughput_in_mibps = 100              # Only used if throughput_mode = "provisioned"
+efs_transition_to_ia               = "AFTER_30_DAYS"    # Options: AFTER_7_DAYS, AFTER_14_DAYS, AFTER_30_DAYS, AFTER_60_DAYS, AFTER_90_DAYS
+efs_backup_policy_status           = "ENABLED"          # Options: ENABLED, DISABLED
 
-# EFS CSI Driver Version
+# EFS CSI Driver Version (check AWS documentation for latest)
 efs_csi_driver_version = "v1.7.0-eksbuild.1"
+
+# Cost Optimization Options:
+# For development/testing, you can use:
+# - capacity_type = "SPOT"
+# - instance_types = ["t3.small", "t3.medium"]
+# - desired_size = 1
+# - max_size = 2
+# - min_size = 1
+
+# For production with higher load:
+# - instance_types = ["t3.large", "t3.xlarge"]
+# - desired_size = 3
+# - max_size = 10
+# - min_size = 2
