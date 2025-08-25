@@ -103,7 +103,7 @@ module "efs" {
   throughput_mode                = var.efs_throughput_mode
   provisioned_throughput_in_mibps = var.efs_provisioned_throughput_in_mibps
   transition_to_ia               = var.efs_transition_to_ia
-  backup_policy_status           = var.efs_backup_policy_status
+  enable_backup_policy           = var.efs_enable_backup_policy
   
   tags = local.common_tags
   
