@@ -22,6 +22,13 @@ variable "node_security_group_id" {
   default     = ""
 }
 
+# Toggle to avoid unknown-dependent count during plan
+variable "allow_nodes_sg_ingress" {
+  type        = bool
+  description = "If true, create SG rule allowing NFS from EKS nodes SG"
+  default     = false
+}
+
 # كبديل إذا ما عندك SG للـ Nodes
 variable "allowed_cidr_blocks" {
   type        = list(string)

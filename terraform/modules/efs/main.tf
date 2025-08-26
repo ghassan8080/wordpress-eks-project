@@ -53,10 +53,10 @@ resource "aws_efs_file_system" "wordpress" {
 ########################################
 resource "aws_efs_access_point" "wordpress" {
   file_system_id = aws_efs_file_system.wordpress.id
-  
+
   posix_user {
-    gid = 33  # www-data group
-    uid = 33  # www-data user
+    gid = 33 # www-data group
+    uid = 33 # www-data user
   }
 
   root_directory {
@@ -98,7 +98,7 @@ resource "aws_security_group" "efs" {
 
 # Allow NFS (2049/TCP) from EKS nodes security group
 resource "aws_security_group_rule" "efs_from_nodes_sg" {
-  count                    = var.node_security_group_id != "" ? 1 : 0
+  count                    = var.allow_nodes_sg_ingress ? 1 : 0
   type                     = "ingress"
   security_group_id        = aws_security_group.efs.id
   from_port                = 2049
@@ -106,18 +106,6 @@ resource "aws_security_group_rule" "efs_from_nodes_sg" {
   protocol                 = "tcp"
   source_security_group_id = var.node_security_group_id
   description              = "Allow NFS from EKS nodes SG"
-}
-
-# Alternative: Allow from CIDR blocks if no node SG provided
-resource "aws_security_group_rule" "efs_from_cidrs" {
-  for_each          = toset(var.allowed_cidr_blocks)
-  type              = "ingress"
-  security_group_id = aws_security_group.efs.id
-  from_port         = 2049
-  to_port           = 2049
-  protocol          = "tcp"
-  cidr_blocks       = [each.value]
-  description       = "Allow NFS from CIDR ${each.value}"
 }
 
 ########################################

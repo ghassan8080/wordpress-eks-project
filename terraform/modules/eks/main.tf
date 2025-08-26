@@ -266,11 +266,12 @@ resource "aws_iam_openid_connect_provider" "cluster" {
 
 # EKS Addon - EFS CSI Driver
 resource "aws_eks_addon" "efs_csi_driver" {
-  cluster_name             = aws_eks_cluster.main.name
-  addon_name               = "aws-efs-csi-driver"
-  addon_version            = var.efs_csi_driver_version
-  resolve_conflicts        = "OVERWRITE"
-  service_account_role_arn = aws_iam_role.efs_csi_driver.arn
+  cluster_name                  = aws_eks_cluster.main.name
+  addon_name                    = "aws-efs-csi-driver"
+  addon_version                 = var.efs_csi_driver_version
+  resolve_conflicts_on_create   = "OVERWRITE"
+  resolve_conflicts_on_update   = "OVERWRITE"
+  service_account_role_arn      = aws_iam_role.efs_csi_driver.arn
 
   depends_on = [aws_eks_node_group.main]
 
