@@ -13,6 +13,10 @@ on:
       tf-lock-table:
         description: DynamoDB table for state locks (optional)
         required: false
+      tf-state-key:
+        description: Full S3 key for terraform.tfstate (e.g., wordpress-eks/terraform.tfstate)
+        required: false
+        default: wordpress-eks/terraform.tfstate
 
 permissions:
   contents: read
@@ -24,6 +28,7 @@ jobs:
       AWS_REGION: ${{ github.event.inputs.aws-region || secrets.AWS_REGION || 'us-west-2' }}
       TF_STATE_BUCKET: ${{ github.event.inputs.tf-state-bucket || secrets.TF_STATE_BUCKET }}
       TF_STATE_LOCK_TABLE: ${{ github.event.inputs.tf-lock-table || secrets.TF_STATE_LOCK_TABLE }}
+      TF_STATE_KEY: ${{ github.event.inputs.tf-state-key || 'wordpress-eks/terraform.tfstate' }}
 
     steps:
       - name: Checkout
@@ -76,7 +81,7 @@ jobs:
           fi
           terraform init -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
-            -backend-config="key=wordpress-eks/terraform.tfstate" \
+            -backend-config="key=${TF_STATE_KEY}" \
             -backend-config="region=${AWS_REGION}" \
             $EXTRA_LOCK_CFG
 
