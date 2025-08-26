@@ -55,6 +55,9 @@ jobs:
       - name: Who am I?
         run: aws sts get-caller-identity
 
+      - name: List S3 buckets (discovery)
+        run: aws s3api list-buckets --query 'Buckets[].Name'
+
       - name: Check tfstate object exists
         run: |
           set -euo pipefail
@@ -67,11 +70,15 @@ jobs:
         working-directory: terraform/environments/prod
         run: |
           set -euo pipefail
+          EXTRA_LOCK_CFG=""
+          if [ -n "${TF_STATE_LOCK_TABLE:-}" ]; then
+            EXTRA_LOCK_CFG="-backend-config=dynamodb_table=${TF_STATE_LOCK_TABLE}"
+          fi
           terraform init -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="key=wordpress-eks/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}" \
-            -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}"
+            $EXTRA_LOCK_CFG
 
       - name: Show current state (sanity check)
         working-directory: terraform/environments/prod
