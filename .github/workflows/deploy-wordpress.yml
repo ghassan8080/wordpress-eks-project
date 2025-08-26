@@ -279,7 +279,8 @@ jobs:
         kubectl logs -n wordpress -l app=mysql --tail=50 > deployment-info/mysql-logs.txt || true
 
     - name: Upload deployment artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: deployment-info
         path: deployment-info/
+        retention-days: 7

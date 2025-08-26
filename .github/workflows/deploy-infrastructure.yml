@@ -66,10 +66,11 @@ jobs:
           -out=tfplan
 
     - name: Upload plan
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: terraform-plan
         path: terraform/environments/prod/tfplan
+        retention-days: 5
 
   terraform-apply:
     name: Terraform Apply
@@ -134,10 +135,11 @@ jobs:
         echo "${{ steps.terraform_outputs.outputs.vpc_id }}" > outputs/vpc_id
 
     - name: Upload outputs
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: terraform-outputs
         path: outputs/
+        retention-days: 30
 
   terraform-destroy:
     name: Terraform Destroy
