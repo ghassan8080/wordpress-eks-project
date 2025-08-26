@@ -206,10 +206,13 @@ resource "aws_eks_node_group" "main" {
     max_unavailable = 1
   }
 
-  remote_access {
-    ec2_ssh_key               = var.key_pair_name
-    source_security_group_ids = [aws_security_group.node_group.id]
+  dynamic "remote_access" {
+    for_each = var.key_pair_name != null && var.key_pair_name != "" ? [1] : []
+    content {
+      ec2_ssh_key = var.key_pair_name
+    }
   }
+ 
 
   depends_on = [
     aws_iam_role_policy_attachment.node_group_AmazonEKSWorkerNodePolicy,
@@ -246,9 +249,10 @@ resource "aws_iam_role" "efs_csi_driver" {
   tags = var.tags
 }
 
+
 resource "aws_iam_role_policy_attachment" "efs_csi_driver" {
   role       = aws_iam_role.efs_csi_driver.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEFSClientFullAccess"
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_EFS_CSI_Driver_Policy"
 }
 
 # OIDC Provider
