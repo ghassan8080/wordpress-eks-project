@@ -41,16 +41,54 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Validate backend configuration
+        run: |
+          set -euo pipefail
+          echo "AWS_REGION=${AWS_REGION}"
+          echo "TF_STATE_BUCKET=${TF_STATE_BUCKET:-<empty>}"
+          echo "TF_STATE_LOCK_TABLE=${TF_STATE_LOCK_TABLE:-<empty>}"
+          if [ -z "${TF_STATE_BUCKET:-}" ]; then
+            echo "ERROR: TF_STATE_BUCKET is not set (secret or input). Destroy would run against empty local state."
+            exit 1
+          fi
+
+      - name: Who am I?
+        run: aws sts get-caller-identity
+
+      - name: Check tfstate object exists
+        run: |
+          set -euo pipefail
+          echo "Bucket=${TF_STATE_BUCKET}  Region=${AWS_REGION}"
+          aws s3 ls "s3://${TF_STATE_BUCKET}/wordpress-eks/terraform.tfstate" --region "${AWS_REGION}" || {
+            echo "ERROR: tfstate object not found at s3://${TF_STATE_BUCKET}/wordpress-eks/terraform.tfstate"; exit 1;
+          }
+
       - name: Init backend
         working-directory: terraform/environments/prod
         run: |
+          set -euo pipefail
           terraform init -reconfigure \
             -backend-config="bucket=${TF_STATE_BUCKET}" \
             -backend-config="key=wordpress-eks/terraform.tfstate" \
             -backend-config="region=${AWS_REGION}" \
             -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}"
 
+      - name: Show current state (sanity check)
+        working-directory: terraform/environments/prod
+        run: |
+          set -euo pipefail
+          echo "Listing resources from remote state..."
+          terraform state list || true
+
+      - name: Plan destroy (visibility)
+        working-directory: terraform/environments/prod
+        run: |
+          set -euo pipefail
+          terraform plan -destroy -input=false -out=tfplan -var="aws_region=${AWS_REGION}"
+          terraform show -no-color tfplan | sed -n '1,200p'
+
       - name: Destroy
         working-directory: terraform/environments/prod
         run: |
-          terraform destroy -auto-approve -var="aws_region=${AWS_REGION}"
+          set -euo pipefail
+          terraform destroy -auto-approve -input=false -var="aws_region=${AWS_REGION}"
