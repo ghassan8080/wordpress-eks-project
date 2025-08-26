@@ -132,9 +132,9 @@ main() {
     echo -e "${YELLOW}🚀 Starting cleanup process...${NC}"
     
     # Set required environment variables if not set
-    export TF_STATE_BUCKET="${TF_STATE_BUCKET:-your-terraform-state-bucket}"
+    export TF_STATE_BUCKET="${TF_STATE_BUCKET:-ghassan8080-wordpress-eks-project}"
     
-    if [ "$TF_STATE_BUCKET" = "your-terraform-state-bucket" ]; then
+    if [ "$TF_STATE_BUCKET" = "ghassan8080-wordpress-eks-project" ]; then
         echo -e "${RED}❌ Please set TF_STATE_BUCKET environment variable${NC}"
         exit 1
     fi

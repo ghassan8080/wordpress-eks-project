@@ -76,7 +76,7 @@ In your GitHub repository, go to Settings → Secrets and variables → Actions,
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_REGION=us-west-2
-TF_STATE_BUCKET=your-terraform-state-bucket
+TF_STATE_BUCKET=ghassan8080-wordpress-eks-project
 ```
 
 ### 3. Deploy Infrastructure
