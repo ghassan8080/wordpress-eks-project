@@ -112,7 +112,7 @@ resource "aws_security_group_rule" "efs_from_nodes_sg" {
 # EFS Mount Targets (one per subnet)
 ########################################
 resource "aws_efs_mount_target" "this" {
-  for_each        = { for subnet_id in var.private_subnet_ids : subnet_id => subnet_id }
+  for_each        = { for idx, subnet_id in tolist(var.private_subnet_ids) : idx => subnet_id }
   file_system_id  = aws_efs_file_system.wordpress.id
   subnet_id       = each.value
   security_groups = [aws_security_group.efs.id]
