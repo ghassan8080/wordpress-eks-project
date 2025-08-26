@@ -27,12 +27,7 @@ output "access_point_arn" {
 
 output "mount_target_ids" {
   description = "The IDs of the EFS mount targets"
-  value       = aws_efs_mount_target.wordpress[*].id
-}
-
-output "security_group_id" {
-  description = "The ID of the security group for EFS"
-  value       = aws_security_group.efs.id
+  value       = [for mt in aws_efs_mount_target.this : mt.id]
 }
 
 output "kms_key_id" {
