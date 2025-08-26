@@ -18,12 +18,8 @@ terraform {
     }
   }
 
-  backend "s3" {
-     Configure this in terraform init or via environment variables
-     bucket = "ghassan8080-wordpress-eks-project"
-     key    = "wordpress-eks/terraform.tfstate"
-     region = "us-west-2"
-  }
+  # Backend configuration is handled via terraform init -backend-config
+  # or in separate backend.tf file
 }
 
 provider "aws" {
