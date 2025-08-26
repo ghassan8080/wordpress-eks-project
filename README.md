@@ -76,7 +76,9 @@ In your GitHub repository, go to Settings → Secrets and variables → Actions,
 AWS_ACCESS_KEY_ID=your_access_key
 AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_REGION=us-west-2
-TF_STATE_BUCKET=ghassan8080-wordpress-eks-project
+# Optional: override defaults used by scripts
+TF_STATE_BUCKET=wordpress-eks-state-prod
+TF_STATE_LOCK_TABLE=wordpress-eks-locks-prod
 ```
 
 ### 3. Deploy Infrastructure
@@ -86,12 +88,18 @@ TF_STATE_BUCKET=ghassan8080-wordpress-eks-project
 2. Go to Actions tab in GitHub
 3. Run "Deploy Infrastructure" workflow
 
-**Option B: Local Deployment**
+**Option B: Local Deployment (WSL)**
 ```bash
-# Initialize and apply Terraform
-cd terraform/environments/prod
-terraform init -backend-config="bucket=your-terraform-state-bucket"
-terraform apply
+# From repo root (WSL)
+chmod +x scripts/*.sh
+export AWS_PROFILE=default   # or configure AWS creds via aws configure
+export AWS_REGION=us-west-2
+
+# One command deploy
+make infra
+
+# Or run script directly
+AWS_REGION=$AWS_REGION bash scripts/deploy-infra.sh
 ```
 
 ### 4. Deploy WordPress
@@ -101,11 +109,11 @@ The WordPress deployment workflow will run automatically after infrastructure is
 
 **Option B: Manual Deployment**
 ```bash
-# Run the setup script
-./scripts/setup-cluster.sh
+# Setup cluster resources and install WordPress
+AWS_REGION=$AWS_REGION bash scripts/setup-cluster.sh
 
 # Or deploy manually
-./scripts/deploy-wordpress.sh
+AWS_REGION=$AWS_REGION bash scripts/deploy-wordpress.sh
 ```
 
 ### 5. Access Your Site

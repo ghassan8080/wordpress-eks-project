@@ -1,3 +1,69 @@
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      aws-region:
+        description: AWS region
+        required: false
+        default: us-west-2
+      tf-state-bucket:
+        description: S3 bucket for Terraform state (optional)
+        required: false
+      tf-lock-table:
+        description: DynamoDB table for state locks (optional)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ github.event.inputs.aws-region || secrets.AWS_REGION || 'us-west-2' }}
+      TF_STATE_BUCKET: ${{ github.event.inputs.tf-state-bucket || secrets.TF_STATE_BUCKET }}
+      TF_STATE_LOCK_TABLE: ${{ github.event.inputs.tf-lock-table || secrets.TF_STATE_LOCK_TABLE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Make scripts executable
+        run: |
+          chmod +x scripts/*.sh || true
+
+      - name: Deploy infrastructure
+        shell: bash
+        run: |
+          echo "AWS_REGION=${AWS_REGION}"
+          if [ -n "${TF_STATE_BUCKET}" ]; then echo "Using TF_STATE_BUCKET=${TF_STATE_BUCKET}"; fi
+          if [ -n "${TF_STATE_LOCK_TABLE}" ]; then echo "Using TF_STATE_LOCK_TABLE=${TF_STATE_LOCK_TABLE}"; fi
+          AWS_REGION=${AWS_REGION} TF_STATE_BUCKET=${TF_STATE_BUCKET} TF_STATE_LOCK_TABLE=${TF_STATE_LOCK_TABLE} \
+            bash scripts/deploy-infra.sh
+
+      - name: Upload Terraform plan as artifact (optional)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tf-artifacts
+          path: |
+            terraform/environments/prod/tfplan
+            terraform/environments/prod/.terraform.lock.hcl
+          if-no-files-found: ignore
+
 # .github/workflows/deploy-infrastructure.yml
 name: Deploy Infrastructure
 
