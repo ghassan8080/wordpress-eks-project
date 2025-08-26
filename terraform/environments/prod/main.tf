@@ -127,6 +127,7 @@ resource "aws_ssm_parameter" "mysql_root_password" {
   name  = "/${var.project_name}/${var.environment}/mysql/root-password"
   type  = "SecureString"
   value = random_password.mysql_root_password.result
+  overwrite = true
 
   tags = local.common_tags
 }
@@ -135,6 +136,7 @@ resource "aws_ssm_parameter" "mysql_wordpress_password" {
   name  = "/${var.project_name}/${var.environment}/mysql/wordpress-password"
   type  = "SecureString"
   value = random_password.mysql_wordpress_password.result
+  overwrite = true
 
   tags = local.common_tags
 }
@@ -144,6 +146,7 @@ resource "aws_ssm_parameter" "cluster_name" {
   name  = "/${var.project_name}/${var.environment}/eks/cluster-name"
   type  = "String"
   value = local.cluster_name
+  overwrite = true
 
   tags = local.common_tags
 }
@@ -152,6 +155,7 @@ resource "aws_ssm_parameter" "cluster_endpoint" {
   name  = "/${var.project_name}/${var.environment}/eks/cluster-endpoint"
   type  = "String"
   value = module.eks.cluster_endpoint
+  overwrite = true
 
   tags = local.common_tags
 }
@@ -160,6 +164,7 @@ resource "aws_ssm_parameter" "vpc_id" {
   name  = "/${var.project_name}/${var.environment}/vpc/vpc-id"
   type  = "String"
   value = module.vpc.vpc_id
+  overwrite = true
 
   tags = local.common_tags
 }
