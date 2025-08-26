@@ -17,38 +17,40 @@ private_subnet_cidrs   = ["10.0.10.0/24", "10.0.20.0/24"]
 # EKS Configuration
 kubernetes_version = "1.28"
 capacity_type     = "ON_DEMAND"        # Options: ON_DEMAND, SPOT
-instance_types    = ["t3.medium"]       # Adjust based on your needs
+instance_types    = ["t3.medium"]       # For demo: t3.small is cheaper
 ami_type         = "AL2_x86_64"
 disk_size        = 20
 
-# Node Group Scaling - Adjust based on expected load
+# Node Group Scaling - Simplified for demo/test
 desired_size = 2
-max_size     = 4
+max_size     = 3
 min_size     = 1
 
 # SSH Access (optional - uncomment and set if you need SSH access to nodes)
 # key_pair_name = "your-key-pair-name"
 
-# EFS Configuration
+# EFS Configuration - Optimized for cost
 efs_performance_mode                = "generalPurpose"  # Options: generalPurpose, maxIO
 efs_throughput_mode                = "bursting"         # Options: bursting, provisioned
 efs_provisioned_throughput_in_mibps = 100              # Only used if throughput_mode = "provisioned"
 efs_transition_to_ia               = "AFTER_30_DAYS"    # Options: AFTER_7_DAYS, AFTER_14_DAYS, AFTER_30_DAYS, AFTER_60_DAYS, AFTER_90_DAYS
-efs_backup_policy_status           = "ENABLED"          # Options: ENABLED, DISABLED
+efs_enable_backup_policy           = false              # Disabled for demo to save costs
 
 # EFS CSI Driver Version (check AWS documentation for latest)
 efs_csi_driver_version = "v1.7.0-eksbuild.1"
 
-# Cost Optimization Options:
-# For development/testing, you can use:
-# - capacity_type = "SPOT"
-# - instance_types = ["t3.small", "t3.medium"]
-# - desired_size = 1
-# - max_size = 2
-# - min_size = 1
+# === DEMO/TEST OPTIMIZED SETTINGS ===
+# For minimal cost testing, use:
+# capacity_type = "SPOT"              # Use spot instances
+# instance_types = ["t3.small"]       # Smaller instances
+# desired_size = 1                    # Single node
+# max_size = 2
+# min_size = 1
 
+# === PRODUCTION SETTINGS ===
 # For production with higher load:
-# - instance_types = ["t3.large", "t3.xlarge"]
-# - desired_size = 3
-# - max_size = 10
-# - min_size = 2
+# instance_types = ["t3.large", "t3.xlarge"]
+# desired_size = 3
+# max_size = 10
+# min_size = 2
+# efs_enable_backup_policy = true

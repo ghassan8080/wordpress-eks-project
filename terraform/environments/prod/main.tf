@@ -8,6 +8,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.1"
+    }
     tls = {
       source  = "hashicorp/tls"
       version = "~> 4.0"
@@ -152,6 +156,14 @@ resource "aws_ssm_parameter" "cluster_endpoint" {
   name  = "/${var.project_name}/${var.environment}/eks/cluster-endpoint"
   type  = "String"
   value = module.eks.cluster_endpoint
+
+  tags = local.common_tags
+}
+
+resource "aws_ssm_parameter" "vpc_id" {
+  name  = "/${var.project_name}/${var.environment}/vpc/vpc-id"
+  type  = "String"
+  value = module.vpc.vpc_id
 
   tags = local.common_tags
 }

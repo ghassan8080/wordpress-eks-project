@@ -41,7 +41,7 @@ resource "aws_efs_file_system" "wordpress" {
     transition_to_ia = var.transition_to_ia
   }
 
-  # اختياري: رجّع الملفات من IA إلى Standard بعد أول وصول
+  # Optional: Return files from IA to Standard after first access
   lifecycle_policy {
     transition_to_primary_storage_class = "AFTER_1_ACCESS"
   }
@@ -53,6 +53,32 @@ resource "aws_efs_file_system" "wordpress" {
 }
 
 ########################################
+# EFS Access Point for WordPress
+########################################
+resource "aws_efs_access_point" "wordpress" {
+  file_system_id = aws_efs_file_system.wordpress.id
+  
+  posix_user {
+    gid = 33  # www-data group
+    uid = 33  # www-data user
+  }
+
+  root_directory {
+    creation_info {
+      owner_gid   = 33
+      owner_uid   = 33
+      permissions = "0755"
+    }
+    path = "/wordpress"
+  }
+
+  tags = merge(
+    var.tags,
+    { Name = "${var.project_name}-wordpress-access-point" }
+  )
+}
+
+########################################
 # Security Group for EFS
 ########################################
 resource "aws_security_group" "efs" {
@@ -60,7 +86,6 @@ resource "aws_security_group" "efs" {
   description = "Security group for EFS mount targets"
   vpc_id      = var.vpc_id
 
-  # خروج مفتوح (مطلوب غالباً مع SGs في VPC)
   egress {
     from_port        = 0
     to_port          = 0
@@ -75,7 +100,7 @@ resource "aws_security_group" "efs" {
   )
 }
 
-# اسمح بالـ NFS (2049/TCP) من Security Group تبع الـ Nodes (إذا متوفر)
+# Allow NFS (2049/TCP) from EKS nodes security group
 resource "aws_security_group_rule" "efs_from_nodes_sg" {
   count                    = var.node_security_group_id != "" ? 1 : 0
   type                     = "ingress"
@@ -87,7 +112,7 @@ resource "aws_security_group_rule" "efs_from_nodes_sg" {
   description              = "Allow NFS from EKS nodes SG"
 }
 
-# أو بديلًا: اسمح من CIDR blocks محددة (إذا ما عندك SG للـ Nodes)
+# Alternative: Allow from CIDR blocks if no node SG provided
 resource "aws_security_group_rule" "efs_from_cidrs" {
   for_each          = toset(var.allowed_cidr_blocks)
   type              = "ingress"
@@ -100,7 +125,7 @@ resource "aws_security_group_rule" "efs_from_cidrs" {
 }
 
 ########################################
-# EFS Mount Targets (واحد لكل Subnet)
+# EFS Mount Targets (one per subnet)
 ########################################
 resource "aws_efs_mount_target" "this" {
   for_each        = toset(var.private_subnet_ids)
@@ -109,3 +134,14 @@ resource "aws_efs_mount_target" "this" {
   security_groups = [aws_security_group.efs.id]
 }
 
+########################################
+# EFS Backup Policy (optional)
+########################################
+resource "aws_efs_backup_policy" "wordpress" {
+  count          = var.enable_backup_policy ? 1 : 0
+  file_system_id = aws_efs_file_system.wordpress.id
+
+  backup_policy {
+    status = "ENABLED"
+  }
+}

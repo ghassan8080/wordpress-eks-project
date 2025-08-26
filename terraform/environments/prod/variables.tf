@@ -142,8 +142,8 @@ variable "efs_transition_to_ia" {
   default     = "AFTER_30_DAYS"
 }
 
-variable "efs_backup_policy_status" {
-  description = "A status of the backup policy"
-  type        = string
-  default     = "ENABLED"
+variable "efs_enable_backup_policy" {
+  description = "Enable backup policy for EFS"
+  type        = bool
+  default     = false
 }
