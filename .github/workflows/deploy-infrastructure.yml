@@ -87,13 +87,48 @@ jobs:
 
           echo "Using CLUSTER_NAME=${CLUSTER_NAME}"
 
-          # Attempt imports; ignore if not found or already imported
-          set +e
-          terraform import -lock=false module.eks.aws_iam_role.cluster "${CLUSTER_NAME}-cluster-role" >/dev/null 2>&1
-          terraform import -lock=false module.eks.aws_iam_role.node_group "${CLUSTER_NAME}-node-group-role" >/dev/null 2>&1
-          terraform import -lock=false module.eks.aws_kms_alias.eks "alias/${CLUSTER_NAME}-eks-encryption-key" >/dev/null 2>&1
-          terraform import -lock=false module.eks.aws_cloudwatch_log_group.cluster "/aws/eks/${CLUSTER_NAME}/cluster" >/dev/null 2>&1
-          set -e
+          # Helper: check if address exists in state
+          has_state_addr() {
+            terraform state list | grep -qx "$1"
+          }
+
+          # IAM Role: cluster
+          if ! has_state_addr "module.eks.aws_iam_role.cluster"; then
+            if aws iam get-role --role-name "${CLUSTER_NAME}-cluster-role" >/dev/null 2>&1; then
+              terraform import -lock=false module.eks.aws_iam_role.cluster "${CLUSTER_NAME}-cluster-role"
+            fi
+          fi
+
+          # IAM Role: node group
+          if ! has_state_addr "module.eks.aws_iam_role.node_group"; then
+            if aws iam get-role --role-name "${CLUSTER_NAME}-node-group-role" >/dev/null 2>&1; then
+              terraform import -lock=false module.eks.aws_iam_role.node_group "${CLUSTER_NAME}-node-group-role"
+            fi
+          fi
+
+          # KMS alias and key
+          ALIAS_NAME="alias/${CLUSTER_NAME}-eks-encryption-key"
+          ALIAS_INFO=$(aws kms list-aliases --query "Aliases[?AliasName=='${ALIAS_NAME}'].[AliasArn,TargetKeyId]" --output text || true)
+          if [ -n "${ALIAS_INFO:-}" ]; then
+            TARGET_KEY_ID=$(echo "$ALIAS_INFO" | awk '{print $2}')
+            if [ -n "${TARGET_KEY_ID:-}" ] && ! has_state_addr "module.eks.aws_kms_key.eks"; then
+              terraform import -lock=false module.eks.aws_kms_key.eks "$TARGET_KEY_ID"
+            fi
+            if ! has_state_addr "module.eks.aws_kms_alias.eks"; then
+              terraform import -lock=false module.eks.aws_kms_alias.eks "$ALIAS_NAME"
+            fi
+          fi
+
+          # CloudWatch Log Group
+          LOG_GROUP_NAME="/aws/eks/${CLUSTER_NAME}/cluster"
+          if ! has_state_addr "module.eks.aws_cloudwatch_log_group.cluster"; then
+            if aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP_NAME" --query "logGroups[?logGroupName=='${LOG_GROUP_NAME}']" --output text | grep -q "$LOG_GROUP_NAME"; then
+              terraform import -lock=false module.eks.aws_cloudwatch_log_group.cluster "$LOG_GROUP_NAME"
+            fi
+          fi
+
+          echo "Terraform state after imports:"
+          terraform state list || true
 
       - name: Terraform Validate
         run: terraform validate
