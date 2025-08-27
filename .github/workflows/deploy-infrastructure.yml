@@ -77,6 +77,24 @@ jobs:
           EOF
           terraform init -upgrade -backend-config=backend.hcl
 
+      - name: Import pre-existing AWS resources into state (idempotent)
+        run: |
+          set -euo pipefail
+          # Derive cluster name from TF_VAR overrides or defaults
+          PROJECT_NAME="${TF_VAR_project_name:-wordpress-eks}"
+          ENVIRONMENT="${TF_VAR_environment:-prod}"
+          CLUSTER_NAME="${PROJECT_NAME}-${ENVIRONMENT}"
+
+          echo "Using CLUSTER_NAME=${CLUSTER_NAME}"
+
+          # Attempt imports; ignore if not found or already imported
+          set +e
+          terraform import -lock=false module.eks.aws_iam_role.cluster "${CLUSTER_NAME}-cluster-role" >/dev/null 2>&1
+          terraform import -lock=false module.eks.aws_iam_role.node_group "${CLUSTER_NAME}-node-group-role" >/dev/null 2>&1
+          terraform import -lock=false module.eks.aws_kms_alias.eks "alias/${CLUSTER_NAME}-eks-encryption-key" >/dev/null 2>&1
+          terraform import -lock=false module.eks.aws_cloudwatch_log_group.cluster "/aws/eks/${CLUSTER_NAME}/cluster" >/dev/null 2>&1
+          set -e
+
       - name: Terraform Validate
         run: terraform validate
 
