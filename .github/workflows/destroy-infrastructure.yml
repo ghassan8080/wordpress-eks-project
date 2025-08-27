@@ -29,6 +29,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Validate required environment variables
+        run: |
+          set -euo pipefail
+          for var in AWS_REGION TF_STATE_BUCKET TF_STATE_LOCK_TABLE; do
+            if [ -z "${!var:-}" ]; then
+              echo "Required env var $var is not set. Configure GitHub Secret $var." >&2
+              exit 1
+            fi
+          done
+
       - name: Terraform Init (S3 backend)
         run: |
           cat > backend.hcl <<EOF
