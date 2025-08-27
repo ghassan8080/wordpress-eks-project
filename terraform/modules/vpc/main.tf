@@ -27,34 +27,26 @@ resource "aws_internet_gateway" "main" {
 
 # Public Subnets
 resource "aws_subnet" "public" {
-  count = var.public_subnet_count
-
+  count                   = length(var.public_subnet_cidrs)
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = data.aws_availability_zones.available.names[count.index]
-  map_public_ip_on_launch = true
-
+  map_public_ip_on_launch  = true
   tags = {
-    Name                                        = "${var.project_name}-public-subnet-${count.index + 1}"
-    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-    "kubernetes.io/role/elb"                    = "1"
+    Name = "public-subnet-${count.index}"
   }
 }
-
-# Private Subnets
+# private subnet
 resource "aws_subnet" "private" {
-  count = var.private_subnet_count
-
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = var.private_subnet_cidrs[count.index]
-  availability_zone = data.aws_availability_zones.available.names[count.index]
-
+  count                   = length(var.private_subnet_cidrs)
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = var.private_subnet_cidrs[count.index]
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
   tags = {
-    Name                                        = "${var.project_name}-private-subnet-${count.index + 1}"
-    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-    "kubernetes.io/role/internal-elb"           = "1"
+    Name = "private-subnet-${count.index}"
   }
 }
+
 
 # NAT Gateway Elastic IPs
 resource "aws_eip" "nat" {
