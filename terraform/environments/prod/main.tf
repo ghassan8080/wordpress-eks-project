@@ -63,8 +63,13 @@ module "vpc" {
 }
 
 # EKS Module
+
 module "eks" {
-  source = "../../modules/eks"
+  source          = "../../modules/eks"
+  cluster_name    = "wordpress-eks-prod"
+  private_subnets = module.vpc.private_subnets
+}
+
 
   cluster_name       = local.cluster_name
   kubernetes_version = var.kubernetes_version

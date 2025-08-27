@@ -52,4 +52,3 @@ variable "tags" {
   default     = {}
 }
 
-data "aws_availability_zones" "available" {}

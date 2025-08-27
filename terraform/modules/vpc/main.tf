@@ -4,6 +4,16 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+# نأخذ أول ثلاث AZs فقط إذا متاحة
+locals {
+  azs = slice(data.aws_availability_zones.available.names, 0, 3)
+}
+
+
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
 # VPC
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -27,23 +37,25 @@ resource "aws_internet_gateway" "main" {
 
 # Public Subnets
 resource "aws_subnet" "public" {
-  count                   = length(var.public_subnet_cidrs)
+  count                   = length(local.azs)
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.public_subnet_cidrs[count.index]
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index)
+  availability_zone       = local.azs[count.index]
   map_public_ip_on_launch  = true
+
   tags = {
-    Name = "public-subnet-${count.index}"
+    Name = "public-subnet-${count.index + 1}"
   }
 }
-# private subnet
+
 resource "aws_subnet" "private" {
-  count                   = length(var.private_subnet_cidrs)
+  count                   = length(local.azs)
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = var.private_subnet_cidrs[count.index]
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index + length(local.azs))
+  availability_zone       = local.azs[count.index]
+
   tags = {
-    Name = "private-subnet-${count.index}"
+    Name = "private-subnet-${count.index + 1}"
   }
 }
 
