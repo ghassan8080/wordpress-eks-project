@@ -39,9 +39,6 @@ jobs:
             fi
           done
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
       - name: Terraform Init (S3 backend)
         run: |
           cat > backend.hcl <<EOF
@@ -52,6 +49,7 @@ jobs:
           encrypt        = true
           EOF
           terraform init -upgrade -backend-config=backend.hcl
+
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve -input=false -lock=true -lock-timeout=5m -var="aws_region=${AWS_REGION}"
