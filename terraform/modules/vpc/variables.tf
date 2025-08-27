@@ -28,6 +28,12 @@ variable "private_subnet_count" {
   default     = 2
 }
 
+variable "single_nat_gateway" {
+  description = "Create a single NAT gateway/EIP instead of one per AZ"
+  type        = bool
+  default     = false
+}
+
 variable "public_subnet_cidrs" {
   description = "CIDR blocks for public subnets"
   type        = list(string)

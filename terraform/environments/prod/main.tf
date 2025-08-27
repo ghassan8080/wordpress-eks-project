@@ -57,6 +57,7 @@ module "vpc" {
   private_subnet_count = var.private_subnet_count
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
+  single_nat_gateway   = true
 
   tags = local.common_tags
 }

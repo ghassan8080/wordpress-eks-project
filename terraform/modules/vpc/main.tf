@@ -58,7 +58,7 @@ resource "aws_subnet" "private" {
 
 # NAT Gateway Elastic IPs
 resource "aws_eip" "nat" {
-  count = var.private_subnet_count
+  count = var.single_nat_gateway ? 1 : var.private_subnet_count
 
   domain     = "vpc"
   depends_on = [aws_internet_gateway.main]
@@ -70,7 +70,7 @@ resource "aws_eip" "nat" {
 
 # NAT Gateways
 resource "aws_nat_gateway" "main" {
-  count = var.private_subnet_count
+  count = var.single_nat_gateway ? 1 : var.private_subnet_count
 
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
@@ -104,7 +104,7 @@ resource "aws_route_table" "private" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[count.index].id
+    nat_gateway_id = var.single_nat_gateway ? aws_nat_gateway.main[0].id : aws_nat_gateway.main[count.index].id
   }
 
   tags = {
