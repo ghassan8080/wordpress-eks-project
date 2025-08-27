@@ -15,6 +15,11 @@ variable "private_subnet_ids" {
   description = "List of private subnet IDs (one per AZ) for EFS mount targets"
 }
 
+variable "private_subnet_count" {
+  type        = number
+  description = "Number of private subnets (static count to drive for_each keys)"
+}
+
 # يفضَّل تمرير SG تبع الـ Node Group من موديول الـ EKS
 variable "node_security_group_id" {
   type        = string
