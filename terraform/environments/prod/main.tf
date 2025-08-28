@@ -214,9 +214,9 @@ resource "kubernetes_service" "wordpress" {
 }
 
 # Add provider configuration
-provider "aws" {
-  region = var.aws_region
-}
+# provider "aws" {
+#   region = var.aws_region
+# }
 
   
 
