@@ -41,3 +41,6 @@ db_password          = "ChangeMe123!"
 db_instance_class    = "db.t3.micro"
 db_allocated_storage = 20
 wordpress_replicas   = 2
+
+project_name = "wordpress-eks"
+environment  = "prod"

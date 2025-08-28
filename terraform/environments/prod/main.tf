@@ -4,62 +4,73 @@ provider "aws" {
   region = var.aws_region
 }
 
+# module "vpc" {
+#   source  = "terraform-aws-modules/vpc/aws"
+#   version = "5.0.0"
+
+#   name = "wordpress-vpc"
+#   cidr = "10.0.0.0/16"
+
+#   azs             = ["us-west-2a", "us-west-2b"]
+#   private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+#   public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+
+#   enable_nat_gateway = true
+#   single_nat_gateway = true
+#   enable_vpn_gateway = false
+
+#   tags = {
+#     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+#   }
+
+#   public_subnet_tags = {
+#     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+#     "kubernetes.io/role/elb"                    = "1"
+#   }
+
+#   private_subnet_tags = {
+#     "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+#     "kubernetes.io/role/internal-elb"           = "1"
+#   }
+# }
+
 module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "5.0.0"
-
-  name = "wordpress-vpc"
-  cidr = "10.0.0.0/16"
-
-  azs             = ["us-west-2a", "us-west-2b"]
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
-  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
-
-  enable_nat_gateway = true
-  single_nat_gateway = true
-  enable_vpn_gateway = false
-
-  tags = {
-    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-  }
-
-  public_subnet_tags = {
-    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-    "kubernetes.io/role/elb"                    = "1"
-  }
-
-  private_subnet_tags = {
-    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-    "kubernetes.io/role/internal-elb"           = "1"
-  }
+  source = "../../modules/vpc"
+  # ... other configurations ...
 }
 
-module "eks" {
-  source  = "terraform-aws-modules/eks/aws"
-  version = "19.15.3"
 
-  cluster_name    = var.cluster_name
-  cluster_version = "1.27"
+# module "eks" {
+#   source  = "terraform-aws-modules/eks/aws"
+#   version = "19.15.3"
 
-  vpc_id                         = module.vpc.vpc_id
-  subnet_ids                     = module.vpc.private_subnets
-  cluster_endpoint_public_access = true
+#   cluster_name    = var.cluster_name
+#   cluster_version = "1.27"
 
-  eks_managed_node_groups = {
-    default = {
-      min_size     = 1
-      max_size     = 3
-      desired_size = 2
+#   vpc_id                         = module.vpc.vpc_id
+#   subnet_ids                     = module.vpc.private_subnets
+#   cluster_endpoint_public_access = true
 
-      instance_types = ["t3.medium"]
-    }
-  }
+#   eks_managed_node_groups = {
+#     default = {
+#       min_size     = 1
+#       max_size     = 3
+#       desired_size = 2
 
-  tags = {
-    Environment = "test"
-  }
+#       instance_types = ["t3.medium"]
+#     }
+#   }
+
+#   tags = {
+#     Environment = "test"
+#   }
+# }
+
+module "efs" {
+  source = "../../modules/efs"
+  # ... configurations ...
+  depends_on = [module.vpc]
 }
-
 resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
   role       = module.eks.eks_managed_node_groups["default"].iam_role_name
@@ -220,12 +231,14 @@ resource "kubernetes_service" "wordpress" {
 
   
 
-module "efs" {
-  source = "../../modules/efs"
+# module "efs" {
+#   source = "../../modules/efs"
   
-  cluster_name         = var.cluster_name
-  vpc_id              = module.vpc.vpc_id
-  subnet_ids          = module.vpc.private_subnets
-  cluster_security_group_id = module.eks.cluster_security_group_id
-  # ... other variables
-}
+#   cluster_name         = var.cluster_name
+#   vpc_id              = module.vpc.vpc_id
+#   subnet_ids          = module.vpc.private_subnets
+#   cluster_security_group_id = module.eks.cluster_security_group_id
+#   # ... other variables
+# }
+
+
