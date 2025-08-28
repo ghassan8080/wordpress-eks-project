@@ -212,38 +212,13 @@ resource "kubernetes_service" "wordpress" {
     type = "LoadBalancer"
   }
 }
-# Add backend configuration
-terraform {
-  backend "s3" {
-    bucket         = "ghassan-terraform-state-bucket"
-    key            = "eks-wordpress/prod/terraform.tfstate"
-    region         = "us-west-2"
-    dynamodb_table = "ghassan-terraform-lock-table"
-    encrypt        = true
-  }
-}
 
 # Add provider configuration
 provider "aws" {
   region = var.aws_region
 }
 
-# Add module calls
-module "vpc" {
-  source = "../../modules/vpc"
   
-  cluster_name = var.cluster_name
-  # ... other variables
-}
-
-module "eks" {
-  source = "../../modules/eks"
-  
-  cluster_name    = var.cluster_name
-  vpc_id         = module.vpc.vpc_id
-  subnet_ids     = module.vpc.private_subnets
-  # ... other variables
-}
 
 module "efs" {
   source = "../../modules/efs"

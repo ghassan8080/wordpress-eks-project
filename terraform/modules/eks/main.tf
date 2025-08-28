@@ -143,30 +143,30 @@ resource "aws_eks_cluster" "main" {
   depends_on = [aws_iam_role_policy_attachment.eks_cluster_AmazonEKSClusterPolicy]
 }
 
-  vpc_config {
-    subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
-    security_group_ids      = [aws_security_group.cluster.id]
-    endpoint_private_access = true
-    endpoint_public_access  = true
-    public_access_cidrs     = ["0.0.0.0/0"]
-  }
+  # vpc_config {
+  #   subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
+  #   security_group_ids      = [aws_security_group.cluster.id]
+  #   endpoint_private_access = true
+  #   endpoint_public_access  = true
+  #   public_access_cidrs     = ["0.0.0.0/0"]
+  # }
 
-  encryption_config {
-    provider {
-      key_arn = aws_kms_key.eks.arn
-    }
-    resources = ["secrets"]
-  }
+  # encryption_config {
+  #   provider {
+  #     key_arn = aws_kms_key.eks.arn
+  #   }
+  #   resources = ["secrets"]
+  # }
 
-  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  # enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
 
-  depends_on = [
-    aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
-    aws_cloudwatch_log_group.cluster,
-  ]
+  # depends_on = [
+  #   aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
+  #   aws_cloudwatch_log_group.cluster,
+  # ]
 
-  tags = var.tags
-}
+  # tags = var.tags
+
 
 # KMS Key for EKS encryption
 resource "aws_kms_key" "eks" {

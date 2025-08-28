@@ -10,9 +10,9 @@ locals {
 }
 
 
-data "aws_availability_zones" "available" {
-  state = "available"
-}
+# data "aws_availability_zones" "available" {
+#   state = "available"
+# }
 
 # VPC
 resource "aws_vpc" "main" {
@@ -133,16 +133,16 @@ resource "aws_route_table_association" "private" {
 }
 
 # Add these tags to ensure proper EKS integration
-tags = {
-  "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-}
+# tags = {
+#   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+# }
 
-public_subnet_tags = {
-  "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-  "kubernetes.io/role/elb"                    = "1"
-}
+# public_subnet_tags = {
+#   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+#   "kubernetes.io/role/elb"                    = "1"
+# }
 
-private_subnet_tags = {
-  "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-  "kubernetes.io/role/internal-elb"           = "1"
-}
+# private_subnet_tags = {
+#   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+#   "kubernetes.io/role/internal-elb"           = "1"
+# }
