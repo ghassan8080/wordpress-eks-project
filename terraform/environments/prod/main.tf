@@ -66,11 +66,21 @@ module "vpc" {
 #   }
 # }
 
+# module "efs" {
+#   source = "../../modules/efs"
+#   # ... configurations ...
+#   depends_on = [module.vpc]
+# }
+
 module "efs" {
   source = "../../modules/efs"
-  # ... configurations ...
-  depends_on = [module.vpc]
+  
+  project_name      = var.project_name
+  vpc_id           = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
 }
+
+
 resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
   role       = module.eks.eks_managed_node_groups["default"].iam_role_name
