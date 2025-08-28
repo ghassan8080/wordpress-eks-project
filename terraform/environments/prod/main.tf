@@ -72,13 +72,23 @@ module "vpc" {
 #   depends_on = [module.vpc]
 # }
 
+# module "efs" {
+#   source = "../../modules/efs"
+  
+#   project_name      = var.project_name
+#   vpc_id           = module.vpc.vpc_id
+#   private_subnet_ids = module.vpc.private_subnet_ids
+# }
+
 module "efs" {
   source = "../../modules/efs"
   
   project_name      = var.project_name
   vpc_id           = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
+  private_subnet_count = length(module.vpc.private_subnet_ids)
 }
+
 
 
 resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
