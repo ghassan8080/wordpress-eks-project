@@ -1,143 +1,111 @@
-name: deploy-infrastructure
+name: 'Terraform'
 
 on:
-  workflow_dispatch:
   push:
-    branches: [ "main" ]
-    paths:
-      - "terraform/**"
-      - ".github/workflows/deploy-infrastructure.yml"
-
-permissions:
-  contents: read
-  id-token: write
-
-env:
-  AWS_REGION: ${{ secrets.AWS_REGION }}
-  TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-  TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE }}
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  deploy:
+  terraform:
+    name: 'Terraform'
     runs-on: ubuntu-latest
+    environment: production
+
     defaults:
       run:
-        working-directory: terraform/environments/prod
+        shell: bash
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout
+      uses: actions/checkout@v3
+    # Add these steps after checkout:
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+       terraform_version: '1.5.7'
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Validate required environment variables
-        run: |
-          set -euo pipefail
-          for var in AWS_REGION TF_STATE_BUCKET TF_STATE_LOCK_TABLE; do
-            if [ -z "${!var:-}" ]; then
-              echo "Required env var $var is not set. Configure GitHub Secret $var." >&2
-              exit 1
-            fi
-          done
-
-      - name: Ensure backend S3 bucket and DynamoDB lock table
-        run: |
-          set -euo pipefail
-          aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null || {
-            if [ "$AWS_REGION" = "us-east-1" ]; then
-              aws s3api create-bucket --bucket "$TF_STATE_BUCKET"
-            else
-              aws s3api create-bucket --bucket "$TF_STATE_BUCKET" \
-                --create-bucket-configuration LocationConstraint="$AWS_REGION"
-            fi
-          }
-          aws s3api put-bucket-versioning --bucket "$TF_STATE_BUCKET" --versioning-configuration Status=Enabled
-          aws dynamodb describe-table --table-name "$TF_STATE_LOCK_TABLE" >/dev/null 2>&1 || \
-            aws dynamodb create-table \
-              --table-name "$TF_STATE_LOCK_TABLE" \
-              --attribute-definitions AttributeName=LockID,AttributeType=S \
-              --key-schema AttributeName=LockID,KeyType=HASH \
-              --billing-mode PAY_PER_REQUEST
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Write backend and Init Terraform
-        run: |
-          cat > backend.hcl <<EOF
-          bucket         = "${TF_STATE_BUCKET}"
-          key            = "wordpress-eks/prod/terraform.tfstate"
-          region         = "${AWS_REGION}"
-          dynamodb_table = "${TF_STATE_LOCK_TABLE}"
-          encrypt        = true
-          EOF
-          terraform init -upgrade -backend-config=backend.hcl
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+       aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+       aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+       aws-region: us-west-2
 
 
-      - name: Import pre-existing AWS resources into state (idempotent)
-        run: |
-          set -euo pipefail
-          # Derive cluster name from TF_VAR overrides or defaults
-          PROJECT_NAME="${TF_VAR_project_name:-wordpress-eks}"
-          ENVIRONMENT="${TF_VAR_environment:-prod}"
-          CLUSTER_NAME="${PROJECT_NAME}-${ENVIRONMENT}"
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: '1.5.7'
 
-          echo "Using CLUSTER_NAME=${CLUSTER_NAME}"
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
 
-          # Helper: check if address exists in state
-          has_state_addr() {
-            terraform state list | grep -qx "$1"
-          }
+    - name: Terraform Init
+      run: terraform init
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+        TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE }}
 
-          # IAM Role: cluster
-          if ! has_state_addr "module.eks.aws_iam_role.cluster"; then
-            if aws iam get-role --role-name "${CLUSTER_NAME}-cluster-role" >/dev/null 2>&1; then
-              terraform import -lock=false module.eks.aws_iam_role.cluster "${CLUSTER_NAME}-cluster-role"
-            fi
-          fi
+    - name: Terraform Validate
+      run: terraform validate
 
-          # IAM Role: node group
-          if ! has_state_addr "module.eks.aws_iam_role.node_group"; then
-            if aws iam get-role --role-name "${CLUSTER_NAME}-node-group-role" >/dev/null 2>&1; then
-              terraform import -lock=false module.eks.aws_iam_role.node_group "${CLUSTER_NAME}-node-group-role"
-            fi
-          fi
+    - name: Terraform Plan
+      run: terraform plan -out=tfplan
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-          # KMS alias and key
-          ALIAS_NAME="alias/${CLUSTER_NAME}-eks-encryption-key"
-          ALIAS_INFO=$(aws kms list-aliases --query "Aliases[?AliasName=='${ALIAS_NAME}'].[AliasArn,TargetKeyId]" --output text || true)
-          if [ -n "${ALIAS_INFO:-}" ]; then
-            TARGET_KEY_ID=$(echo "$ALIAS_INFO" | awk '{print $2}')
-            if [ -n "${TARGET_KEY_ID:-}" ] && ! has_state_addr "module.eks.aws_kms_key.eks"; then
-              terraform import -lock=false module.eks.aws_kms_key.eks "$TARGET_KEY_ID"
-            fi
-            if ! has_state_addr "module.eks.aws_kms_alias.eks"; then
-              terraform import -lock=false module.eks.aws_kms_alias.eks "$ALIAS_NAME"
-            fi
-          fi
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main'
+      run: terraform apply -auto-approve tfplan
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
-          # CloudWatch Log Group
-          LOG_GROUP_NAME="/aws/eks/${CLUSTER_NAME}/cluster"
-          if ! has_state_addr "module.eks.aws_cloudwatch_log_group.cluster"; then
-            if aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP_NAME" --query "logGroups[?logGroupName=='${LOG_GROUP_NAME}']" --output text | grep -q "$LOG_GROUP_NAME"; then
-              terraform import -lock=false module.eks.aws_cloudwatch_log_group.cluster "$LOG_GROUP_NAME"
-            fi
-          fi
+  destroy:
+    name: 'Destroy'
+    runs-on: ubuntu-latest
+    environment: production
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
 
-          echo "Terraform state after imports:"
-          terraform state list || true
+    defaults:
+      run:
+        shell: bash
 
-      - name: Terraform Validate
-        run: terraform validate
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v3
 
-      - name: Terraform Plan
-        run: terraform plan -out=tfplan -input=false -lock=true -lock-timeout=5m -var="aws_region=${AWS_REGION}"
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: '1.5.7'
 
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main'
-        run: terraform apply -auto-approve tfplan
-      
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+
+    - name: Terraform Init
+      run: terraform init
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+        TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE }}
+
+    - name: Terraform Destroy
+      run: terraform destroy -auto-approve
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+

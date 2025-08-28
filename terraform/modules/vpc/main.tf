@@ -131,3 +131,18 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private[count.index].id
 }
+
+# Add these tags to ensure proper EKS integration
+tags = {
+  "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+}
+
+public_subnet_tags = {
+  "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+  "kubernetes.io/role/elb"                    = "1"
+}
+
+private_subnet_tags = {
+  "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+  "kubernetes.io/role/internal-elb"           = "1"
+}

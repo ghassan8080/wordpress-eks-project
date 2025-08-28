@@ -288,3 +288,42 @@ resource "aws_eks_addon" "efs_csi_driver" {
   tags = var.tags
 }
 
+# Add this configuration for proper node group setup
+eks_managed_node_groups = {
+  default = {
+    min_size     = 1
+    max_size     = 3
+    desired_size = 2
+    instance_types = ["t3.medium"]
+    
+    # Add these tags for proper EKS node identification
+    tags = {
+      "k8s.io/cluster-autoscaler/enabled" = "true"
+      "k8s.io/cluster-autoscaler/${var.cluster_name}" = "true"
+    }
+  }
+}
+# Add this configuration for proper EFS integration
+resource "aws_efs_mount_target" "this" {
+  count           = length(var.subnet_ids)
+  file_system_id  = aws_efs_file_system.this.id
+  subnet_id       = var.subnet_ids[count.index]
+  security_groups = [aws_security_group.this.id]
+}
+
+resource "aws_security_group" "this" {
+  name        = "${var.cluster_name}-efs-sg"
+  description = "Allow NFS traffic from EKS"
+  vpc_id      = var.vpc_id
+
+  ingress {
+    from_port   = 2049
+    to_port     = 2049
+    protocol    = "tcp"
+    security_groups = [var.cluster_security_group_id]
+  }
+
+  tags = {
+    Name = "${var.cluster_name}-efs-sg"
+  }
+}

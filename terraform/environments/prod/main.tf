@@ -1,193 +1,256 @@
 # terraform/environments/prod/main.tf
 
-terraform {
-  required_version = ">= 1.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.1"
-    }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
-  }
-
-  # Backend configuration is handled via terraform init -backend-config
-  # or in separate backend.tf file
-}
-
 provider "aws" {
   region = var.aws_region
-
-  default_tags {
-    tags = local.common_tags
-  }
 }
 
-# Local values
-locals {
-  cluster_name = "${var.project_name}-${var.environment}"
-
-  common_tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    ManagedBy   = "Terraform"
-    Owner       = var.owner
-  }
-}
-
-# Data sources
-data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
-
-# VPC Module
 module "vpc" {
-  source = "../../modules/vpc"
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.0.0"
 
-  project_name         = var.project_name
-  cluster_name         = local.cluster_name
-  vpc_cidr             = var.vpc_cidr
-  public_subnet_count  = var.public_subnet_count
-  private_subnet_count = var.private_subnet_count
-  public_subnet_cidrs  = var.public_subnet_cidrs
-  private_subnet_cidrs = var.private_subnet_cidrs
-  single_nat_gateway   = true
+  name = "wordpress-vpc"
+  cidr = "10.0.0.0/16"
 
-  tags = local.common_tags
+  azs             = ["us-west-2a", "us-west-2b"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+
+  enable_nat_gateway = true
+  single_nat_gateway = true
+  enable_vpn_gateway = false
+
+  tags = {
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+  }
+
+  public_subnet_tags = {
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/elb"                    = "1"
+  }
+
+  private_subnet_tags = {
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/internal-elb"           = "1"
+  }
 }
-
-# EKS Module
 
 module "eks" {
-  source          = "../../modules/eks"
-  cluster_name    = "wordpress-eks-prod"
-  private_subnets = module.vpc.private_subnets
+  source  = "terraform-aws-modules/eks/aws"
+  version = "19.15.3"
+
+  cluster_name    = var.cluster_name
+  cluster_version = "1.27"
+
+  vpc_id                         = module.vpc.vpc_id
+  subnet_ids                     = module.vpc.private_subnets
+  cluster_endpoint_public_access = true
+
+  eks_managed_node_groups = {
+    default = {
+      min_size     = 1
+      max_size     = 3
+      desired_size = 2
+
+      instance_types = ["t3.medium"]
+    }
+  }
+
+  tags = {
+    Environment = "test"
+  }
 }
 
-
-  cluster_name       = local.cluster_name
-  kubernetes_version = var.kubernetes_version
-  vpc_id             = module.vpc.vpc_id
-  private_subnet_ids = module.vpc.private_subnet_ids
-  public_subnet_ids  = module.vpc.public_subnet_ids
-
-  # Node group configuration
-  capacity_type  = var.capacity_type
-  instance_types = var.instance_types
-  ami_type       = var.ami_type
-  disk_size      = var.disk_size
-  desired_size   = var.desired_size
-  max_size       = var.max_size
-  min_size       = var.min_size
-  key_pair_name  = var.key_pair_name
-
-  # EFS CSI driver
-  efs_csi_driver_version = var.efs_csi_driver_version
-
-  tags = local.common_tags
-
-  depends_on = [module.vpc]
+resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
 }
 
-# EFS Module
+resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
+}
+
+# RDS for WordPress
+resource "aws_db_subnet_group" "wordpress" {
+  name       = "wordpress-db-subnet-group"
+  subnet_ids = module.vpc.private_subnets
+
+  tags = {
+    Name = "WordPress DB Subnet Group"
+  }
+}
+
+resource "aws_security_group" "rds" {
+  name        = "wordpress-rds-sg"
+  description = "Allow WordPress EKS to access RDS"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress {
+    from_port   = 3306
+    to_port     = 3306
+    protocol    = "tcp"
+    security_groups = [module.eks.cluster_security_group_id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "wordpress-rds-sg"
+  }
+}
+
+resource "aws_db_instance" "wordpress" {
+  identifier           = "wordpress-db"
+  engine               = "mysql"
+  engine_version       = "8.0"
+  instance_class       = "db.t3.micro"
+  allocated_storage    = 20
+  storage_type         = "gp2"
+  storage_encrypted    = true
+  db_name              = "wordpress"
+  username             = "admin"
+  password             = var.db_password
+  parameter_group_name = "default.mysql8.0"
+  db_subnet_group_name = aws_db_subnet_group.wordpress.name
+  vpc_security_group_ids = [aws_security_group.rds.id]
+  skip_final_snapshot  = true
+  multi_az             = false
+
+  tags = {
+    Name = "WordPress DB"
+  }
+}
+
+# EKS Kubernetes resources
+resource "kubernetes_namespace" "wordpress" {
+  metadata {
+    name = "wordpress"
+  }
+}
+
+resource "kubernetes_secret" "wordpress_db" {
+  metadata {
+    name      = "wordpress-db-secret"
+    namespace = kubernetes_namespace.wordpress.metadata[0].name
+  }
+
+  data = {
+    WORDPRESS_DB_HOST = aws_db_instance.wordpress.address
+    WORDPRESS_DB_USER = aws_db_instance.wordpress.username
+    WORDPRESS_DB_PASSWORD = aws_db_instance.wordpress.password
+    WORDPRESS_DB_NAME = aws_db_instance.wordpress.db_name
+  }
+}
+
+resource "kubernetes_deployment" "wordpress" {
+  metadata {
+    name      = "wordpress"
+    namespace = kubernetes_namespace.wordpress.metadata[0].name
+  }
+
+  spec {
+    replicas = 2
+
+    selector {
+      match_labels = {
+        app = "wordpress"
+      }
+    }
+
+    template {
+      metadata {
+        labels = {
+          app = "wordpress"
+        }
+      }
+
+      spec {
+        container {
+          name  = "wordpress"
+          image = "wordpress:latest"
+          port {
+            container_port = 80
+          }
+
+          env_from {
+            secret_ref {
+              name = kubernetes_secret.wordpress_db.metadata[0].name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service" "wordpress" {
+  metadata {
+    name      = "wordpress"
+    namespace = kubernetes_namespace.wordpress.metadata[0].name
+  }
+
+  spec {
+    selector = {
+      app = "wordpress"
+    }
+
+    port {
+      port        = 80
+      target_port = 80
+    }
+
+    type = "LoadBalancer"
+  }
+}
+# Add backend configuration
+terraform {
+  backend "s3" {
+    bucket         = "ghassan-terraform-state-bucket"
+    key            = "eks-wordpress/prod/terraform.tfstate"
+    region         = "us-west-2"
+    dynamodb_table = "ghassan-terraform-lock-table"
+    encrypt        = true
+  }
+}
+
+# Add provider configuration
+provider "aws" {
+  region = var.aws_region
+}
+
+# Add module calls
+module "vpc" {
+  source = "../../modules/vpc"
+  
+  cluster_name = var.cluster_name
+  # ... other variables
+}
+
+module "eks" {
+  source = "../../modules/eks"
+  
+  cluster_name    = var.cluster_name
+  vpc_id         = module.vpc.vpc_id
+  subnet_ids     = module.vpc.private_subnets
+  # ... other variables
+}
+
 module "efs" {
   source = "../../modules/efs"
-
-  project_name           = var.project_name
-  vpc_id                 = module.vpc.vpc_id
-  private_subnet_ids     = module.vpc.private_subnet_ids
-  private_subnet_count   = var.private_subnet_count
-  node_security_group_id = module.eks.cluster_security_group_id
-
-  # EFS configuration
-  performance_mode                = var.efs_performance_mode
-  throughput_mode                 = var.efs_throughput_mode
-  provisioned_throughput_in_mibps = var.efs_provisioned_throughput_in_mibps
-  transition_to_ia                = var.efs_transition_to_ia
-  enable_backup_policy            = var.efs_enable_backup_policy
-
-  tags = local.common_tags
-
-  depends_on = [module.eks]
-}
-
-# Random password for MySQL root user
-resource "random_password" "mysql_root_password" {
-  length  = 16
-  special = true
-}
-
-# Random password for MySQL WordPress user
-resource "random_password" "mysql_wordpress_password" {
-  length  = 16
-  special = true
-}
-
-# AWS Systems Manager Parameter Store for sensitive data
-resource "aws_ssm_parameter" "mysql_root_password" {
-  name  = "/${var.project_name}/${var.environment}/mysql/root-password"
-  type  = "SecureString"
-  value = random_password.mysql_root_password.result
-  overwrite = true
-
-  tags = local.common_tags
-}
-
-resource "aws_ssm_parameter" "mysql_wordpress_password" {
-  name  = "/${var.project_name}/${var.environment}/mysql/wordpress-password"
-  type  = "SecureString"
-  value = random_password.mysql_wordpress_password.result
-  overwrite = true
-
-  tags = local.common_tags
-}
-
-# Store cluster configuration in SSM for later use
-resource "aws_ssm_parameter" "cluster_name" {
-  name  = "/${var.project_name}/${var.environment}/eks/cluster-name"
-  type  = "String"
-  value = local.cluster_name
-  overwrite = true
-
-  tags = local.common_tags
-}
-
-resource "aws_ssm_parameter" "cluster_endpoint" {
-  name  = "/${var.project_name}/${var.environment}/eks/cluster-endpoint"
-  type  = "String"
-  value = module.eks.cluster_endpoint
-  overwrite = true
-
-  tags = local.common_tags
-}
-
-resource "aws_ssm_parameter" "vpc_id" {
-  name  = "/${var.project_name}/${var.environment}/vpc/vpc-id"
-  type  = "String"
-  value = module.vpc.vpc_id
-  overwrite = true
-
-  tags = local.common_tags
-}
-
-resource "aws_ssm_parameter" "efs_file_system_id" {
-  name  = "/${var.project_name}/${var.environment}/efs/file-system-id"
-  type  = "String"
-  value = module.efs.file_system_id
-
-  tags = local.common_tags
-}
-
-resource "aws_ssm_parameter" "efs_access_point_id" {
-  name  = "/${var.project_name}/${var.environment}/efs/access-point-id"
-  type  = "String"
-  value = module.efs.access_point_id
-
-  tags = local.common_tags
+  
+  cluster_name         = var.cluster_name
+  vpc_id              = module.vpc.vpc_id
+  subnet_ids          = module.vpc.private_subnets
+  cluster_security_group_id = module.eks.cluster_security_group_id
+  # ... other variables
 }

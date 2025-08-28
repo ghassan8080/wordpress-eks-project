@@ -1,25 +1,17 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_DIR="$PROJECT_ROOT/terraform/environments/prod"
+# Set variables
+AWS_REGION="us-west-2"
+CLUSTER_NAME="wordpress-cluster"
 
-AWS_REGION="${AWS_REGION:-us-west-2}"
-TF_STATE_BUCKET="${TF_STATE_BUCKET:?TF_STATE_BUCKET is required}"
-TF_STATE_LOCK_TABLE="${TF_STATE_LOCK_TABLE:?TF_STATE_LOCK_TABLE is required}"
+# Update kubeconfig
+aws eks update-kubeconfig --name $CLUSTER_NAME --region $AWS_REGION
 
-pushd "$ENV_DIR" >/dev/null
+# Delete all resources in namespace
+kubectl delete namespace wordpress
 
-cat > backend.hcl <<EOF
-bucket         = "${TF_STATE_BUCKET}"
-key            = "wordpress-eks/prod/terraform.tfstate"
-region         = "${AWS_REGION}"
-dynamodb_table = "${TF_STATE_LOCK_TABLE}"
-encrypt        = true
-EOF
+# Delete Terraform resources
+cd ../terraform/environments/prod
+terraform destroy -auto-approve
 
-terraform init -upgrade -backend-config=backend.hcl
-terraform destroy -auto-approve -lock=true -lock-timeout=5m -var="aws_region=${AWS_REGION}"
-
-popd >/dev/null
-echo "✅ Terraform destroy completed."
+echo "Cleanup completed"

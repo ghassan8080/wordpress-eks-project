@@ -4,8 +4,6 @@ kind: Deployment
 metadata:
   name: redis
   namespace: wordpress
-  labels:
-    app: redis
 spec:
   replicas: 1
   selector:
@@ -18,58 +16,6 @@ spec:
     spec:
       containers:
       - name: redis
-        image: redis:7.2-alpine
-        command:
-        - redis-server
-        - --appendonly
-        - "yes"
-        - --maxmemory
-        - "256mb"
-        - --maxmemory-policy
-        - "allkeys-lru"
+        image: redis:7-alpine
         ports:
         - containerPort: 6379
-          name: redis
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
-        volumeMounts:
-        - name: redis-storage
-          mountPath: /data
-        livenessProbe:
-          exec:
-            command:
-            - redis-cli
-            - ping
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          exec:
-            command:
-            - redis-cli
-            - ping
-          initialDelaySeconds: 5
-          periodSeconds: 5
-      volumes:
-      - name: redis-storage
-        emptyDir: {}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis-service
-  namespace: wordpress
-  labels:
-    app: redis
-spec:
-  ports:
-  - port: 6379
-    targetPort: 6379
-    protocol: TCP
-  selector:
-    app: redis
-  type: ClusterIP
