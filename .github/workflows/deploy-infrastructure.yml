@@ -15,7 +15,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: terraform/environments/prod  # Add this line
+        working-directory: terraform/environments/prod
 
     steps:
     - name: Checkout
@@ -33,22 +33,16 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: us-west-2
 
-    - name: Terraform Plan
-      run: terraform plan -out=tfplan
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        TF_VAR_cluster_name: wordpress-cluster
-        TF_VAR_project_name: wordpress-eks
-
-
     - name: Terraform Init
-      run: terraform init
+      run: |
+        terraform init -reconfigure \
+        -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+        -backend-config="key=wordpress-eks/terraform.tfstate" \
+        -backend-config="region=us-west-2" \
+        -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}"
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
-        TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE }}
 
     - name: Terraform Validate
       run: terraform validate
@@ -58,6 +52,8 @@ jobs:
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        TF_VAR_cluster_name: wordpress-cluster
+        TF_VAR_project_name: wordpress-eks
 
     - name: Terraform Apply
       if: github.ref == 'refs/heads/main'
@@ -67,14 +63,3 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         TF_VAR_cluster_name: wordpress-cluster
         TF_VAR_project_name: wordpress-eks
-
-    - name: Terraform Init
-      run: |
-       terraform init -reconfigure \
-       -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-       -backend-config="key=wordpress-eks/terraform.tfstate" \
-       -backend-config="region=us-west-2" \
-       -backend-config="dynamodb_table=${{ secrets.TF_STATE_LOCK_TABLE }}"
-      env:
-       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
