@@ -4,15 +4,13 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# نأخذ أول ثلاث AZs فقط إذا متاحة
+# Take only the first three AZs if available
 locals {
   azs = slice(data.aws_availability_zones.available.names, 0, 3)
 }
 
 
-# data "aws_availability_zones" "available" {
-#   state = "available"
-# }
+
 
 # VPC
 resource "aws_vpc" "main" {
@@ -39,23 +37,27 @@ resource "aws_internet_gateway" "main" {
 resource "aws_subnet" "public" {
   count                   = length(local.azs)
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index)
+  cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = local.azs[count.index]
   map_public_ip_on_launch  = true
 
   tags = {
     Name = "public-subnet-${count.index + 1}"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/elb"                    = "1"
   }
 }
 
 resource "aws_subnet" "private" {
   count                   = length(local.azs)
   vpc_id                  = aws_vpc.main.id
-  cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index + length(local.azs))
+  cidr_block              = var.private_subnet_cidrs[count.index]
   availability_zone       = local.azs[count.index]
 
   tags = {
     Name = "private-subnet-${count.index + 1}"
+    "kubernetes.io/cluster/${var.cluster_name}" = "shared"
+    "kubernetes.io/role/internal-elb"           = "1"
   }
 }
 
@@ -132,17 +134,4 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[count.index].id
 }
 
-# Add these tags to ensure proper EKS integration
-# tags = {
-#   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-# }
 
-# public_subnet_tags = {
-#   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-#   "kubernetes.io/role/elb"                    = "1"
-# }
-
-# private_subnet_tags = {
-#   "kubernetes.io/cluster/${var.cluster_name}" = "shared"
-#   "kubernetes.io/role/internal-elb"           = "1"
-# }

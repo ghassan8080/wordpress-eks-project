@@ -11,8 +11,8 @@ NC='\033[0m'
 PROJECT_NAME="wordpress-eks"
 ENVIRONMENT="prod"
 AWS_REGION="${AWS_REGION:-us-west-2}"
-TF_BUCKET_NAME="${TF_STATE_BUCKET:-${PROJECT_NAME}-state-${ENVIRONMENT}}"
-TF_DDB_TABLE="${TF_STATE_LOCK_TABLE:-${PROJECT_NAME}-locks-${ENVIRONMENT}}"
+# TF_BUCKET_NAME="${TF_STATE_BUCKET:-${PROJECT_NAME}-state-${ENVIRONMENT}}"
+# TF_DDB_TABLE="${TF_STATE_LOCK_TABLE:-${PROJECT_NAME}-locks-${ENVIRONMENT}}"
 TF_KEY="wordpress-eks/terraform.tfstate"
 
 echo -e "${YELLOW}📦 Bootstrapping Terraform backend (S3 + DynamoDB)...${NC}"

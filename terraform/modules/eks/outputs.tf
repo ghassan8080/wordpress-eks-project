@@ -49,3 +49,8 @@ output "efs_csi_driver_role_arn" {
   description = "ARN of the EFS CSI driver IAM role"
   value       = aws_iam_role.efs_csi_driver.arn
 }
+
+output "node_group_security_group_id" {
+  description = "Security group ID attached to the EKS node group"
+  value       = aws_security_group.node_group.id
+}

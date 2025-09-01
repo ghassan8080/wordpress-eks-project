@@ -1,5 +1,14 @@
 # terraform/environments/prod/main.tf
 
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 provider "aws" {
   region = var.aws_region
 }
@@ -36,35 +45,44 @@ provider "aws" {
 
 module "vpc" {
   source = "../../modules/vpc"
-  # ... other configurations ...
+  
+  project_name         = var.project_name
+  cluster_name         = var.cluster_name
+  vpc_cidr            = var.vpc_cidr
+  public_subnet_count = var.public_subnet_count
+  private_subnet_count = var.private_subnet_count
+  single_nat_gateway  = var.single_nat_gateway
+  
+  tags = {
+    Environment = var.environment
+    Project    = var.project_name
+  }
 }
 
 
-# module "eks" {
-#   source  = "terraform-aws-modules/eks/aws"
-#   version = "19.15.3"
-
-#   cluster_name    = var.cluster_name
-#   cluster_version = "1.27"
-
-#   vpc_id                         = module.vpc.vpc_id
-#   subnet_ids                     = module.vpc.private_subnets
-#   cluster_endpoint_public_access = true
-
-#   eks_managed_node_groups = {
-#     default = {
-#       min_size     = 1
-#       max_size     = 3
-#       desired_size = 2
-
-#       instance_types = ["t3.medium"]
-#     }
-#   }
-
-#   tags = {
-#     Environment = "test"
-#   }
-# }
+module "eks" {
+  source = "../../modules/eks"
+  
+  cluster_name     = var.cluster_name
+  vpc_id           = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  public_subnet_ids  = module.vpc.public_subnet_ids
+  
+  kubernetes_version = var.kubernetes_version
+No declaration found for "var.kubernetes_version"Terraform  capacity_type      = var.capacity_type
+  instance_types     = var.instance_types
+  ami_type           = var.ami_type
+  disk_size          = var.disk_size
+  
+  desired_size = var.desired_size
+  max_size     = var.max_size
+  min_size     = var.min_size
+  
+  tags = {
+    Environment = var.environment
+    Project    = var.project_name
+  }
+}
 
 # module "efs" {
 #   source = "../../modules/efs"
@@ -87,29 +105,23 @@ module "efs" {
   vpc_id           = module.vpc.vpc_id
   private_subnet_ids = module.vpc.private_subnet_ids
   private_subnet_count = length(module.vpc.private_subnet_ids)
+  node_security_group_id = module.eks.node_group_security_group_id
+  allow_nodes_sg_ingress = true
+  
+  tags = {
+    Environment = var.environment
+    Project    = var.project_name
+  }
 }
 
 
 
-resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
-  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
-}
 
-resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
-}
-
-resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-  role       = module.eks.eks_managed_node_groups["default"].iam_role_name
-}
 
 # RDS for WordPress
 resource "aws_db_subnet_group" "wordpress" {
   name       = "wordpress-db-subnet-group"
-  subnet_ids = module.vpc.private_subnets
+  subnet_ids = module.vpc.private_subnet_ids
 
   tags = {
     Name = "WordPress DB Subnet Group"
@@ -144,8 +156,8 @@ resource "aws_db_instance" "wordpress" {
   identifier           = "wordpress-db"
   engine               = "mysql"
   engine_version       = "8.0"
-  instance_class       = "db.t3.micro"
-  allocated_storage    = 20
+  instance_class       = var.db_instance_class
+  allocated_storage    = var.db_allocated_storage
   storage_type         = "gp2"
   storage_encrypted    = true
   db_name              = "wordpress"

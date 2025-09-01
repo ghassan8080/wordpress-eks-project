@@ -134,38 +134,36 @@ resource "aws_security_group" "node_group" {
 # EKS Cluster
 resource "aws_eks_cluster" "main" {
   name     = var.cluster_name
-  role_arn = aws_iam_role.eks_cluster.arn
+  role_arn = aws_iam_role.cluster.arn
 
   vpc_config {
-    subnet_ids = var.private_subnets
+    subnet_ids = var.private_subnet_ids
+    security_group_ids = [aws_security_group.cluster.id]
+    endpoint_private_access = true
+    endpoint_public_access = true
+    public_access_cidrs     = ["0.0.0.0/0"]
   }
 
-  depends_on = [aws_iam_role_policy_attachment.eks_cluster_AmazonEKSClusterPolicy]
+  # Enable encryption
+  encryption_config {
+    provider {
+      key_arn = aws_kms_key.eks.arn
+    }
+    resources = ["secrets"]
+  }
+
+  # Enable logging
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
+  depends_on = [
+    aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
+    aws_cloudwatch_log_group.cluster,
+  ]
+
+  tags = var.tags
 }
 
-  # vpc_config {
-  #   subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
-  #   security_group_ids      = [aws_security_group.cluster.id]
-  #   endpoint_private_access = true
-  #   endpoint_public_access  = true
-  #   public_access_cidrs     = ["0.0.0.0/0"]
-  # }
 
-  # encryption_config {
-  #   provider {
-  #     key_arn = aws_kms_key.eks.arn
-  #   }
-  #   resources = ["secrets"]
-  # }
-
-  # enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
-
-  # depends_on = [
-  #   aws_iam_role_policy_attachment.cluster_AmazonEKSClusterPolicy,
-  #   aws_cloudwatch_log_group.cluster,
-  # ]
-
-  # tags = var.tags
 
 
 # KMS Key for EKS encryption
@@ -288,9 +286,8 @@ resource "aws_eks_addon" "efs_csi_driver" {
   tags = var.tags
 }
 
-# Add this configuration for proper node group setup
-eks_managed_node_groups = {
-  default = {
+
+
     min_size     = 1
     max_size     = 3
     desired_size = 2
@@ -303,27 +300,4 @@ eks_managed_node_groups = {
     }
   }
 }
-# Add this configuration for proper EFS integration
-resource "aws_efs_mount_target" "this" {
-  count           = length(var.subnet_ids)
-  file_system_id  = aws_efs_file_system.this.id
-  subnet_id       = var.subnet_ids[count.index]
-  security_groups = [aws_security_group.this.id]
-}
 
-resource "aws_security_group" "this" {
-  name        = "${var.cluster_name}-efs-sg"
-  description = "Allow NFS traffic from EKS"
-  vpc_id      = var.vpc_id
-
-  ingress {
-    from_port   = 2049
-    to_port     = 2049
-    protocol    = "tcp"
-    security_groups = [var.cluster_security_group_id]
-  }
-
-  tags = {
-    Name = "${var.cluster_name}-efs-sg"
-  }
-}

@@ -10,14 +10,20 @@
 # dynamodb_table = "terraform-state-lock"  # e.g. terraform-state-lock
 # encrypt        = true
 
-terraform {
-  required_version = ">= 1.5.7"
+# terraform {
+#   required_version = ">= 1.5.7"
 
-  backend "s3" {
-    bucket         = "ghassan-terraform-state-bucket"
-    key            = "eks-wordpress/terraform.tfstate"
-    region         = "us-west-2"
-    dynamodb_table = "ghassan-terraform-lock-table"
-    encrypt        = true
+#   backend "s3" {
+#     bucket         = "ghassan-terraform-state-bucket"
+#     key            = "eks-wordpress/terraform.tfstate"
+#     region         = "us-west-2"
+#     dynamodb_table = "ghassan-terraform-lock-table"
+#     encrypt        = true
+#   }
+# }
+
+terraform {
+  backend "local" {
+    path = "terraform.tfstate"
   }
 }
