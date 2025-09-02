@@ -102,6 +102,24 @@ variable "desired_size" {
   default     = 2
 }
 
+variable "public_subnet_cidrs" {
+  description = "CIDR blocks for public subnets"
+  type        = list(string)
+  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+}
+
+variable "private_subnet_cidrs" {
+  description = "CIDR blocks for private subnets"
+  type        = list(string)
+  default     = ["10.0.3.0/24", "10.0.4.0/24"]
+}
+
+variable "wordpress_replicas" {
+  description = "Number of WordPress replicas"
+  type        = number
+  default     = 2
+}
+
 variable "key_pair_name" {
   description = "Name of the EC2 key pair to use for SSH access to worker nodes"
   type        = string
@@ -126,9 +144,5 @@ variable "db_allocated_storage" {
   default     = 20
 }
 
-variable "private_subnet_cidrs" {
-  description = "CIDR blocks for private subnets"
-  type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24"]
-}
+
 

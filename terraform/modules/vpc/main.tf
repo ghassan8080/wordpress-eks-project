@@ -6,9 +6,8 @@ data "aws_availability_zones" "available" {
 
 # Take only the first two AZs if available
 locals {
-  azs = slice(data.aws_availability_zones.available.names, 0, var.public_subnet_count)
+  azs = slice(data.aws_availability_zones.available.names, 0, 2)
 }
-
 
 
 
@@ -35,7 +34,7 @@ resource "aws_internet_gateway" "main" {
 
 # Public Subnets
 resource "aws_subnet" "public" {
-  count                   = length(local.azs)
+  count                   = 2
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = local.azs[count.index]
@@ -49,7 +48,7 @@ resource "aws_subnet" "public" {
 }
 
 resource "aws_subnet" "private" {
-  count                   = length(local.azs)
+  count                   = 2
   vpc_id                  = aws_vpc.main.id
   cidr_block              = var.private_subnet_cidrs[count.index]
   availability_zone       = local.azs[count.index]
