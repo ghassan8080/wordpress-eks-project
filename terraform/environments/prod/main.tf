@@ -43,6 +43,30 @@ provider "aws" {
 #   }
 # }
 
+# Ensure EBS volumes are cleaned up
+resource "null_resource" "cleanup_ebs_volumes" {
+  triggers = {
+    cluster_name = var.cluster_name
+    region       = var.aws_region
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOT
+      echo "Cleaning up any remaining EBS volumes..."
+      $volumes = aws ec2 describe-volumes --filters "Name=tag-key,Values=kubernetes.io/created-for/pvc/namespace" | ConvertFrom-Json
+      foreach ($volume in $volumes.Volumes) {
+        if ($volume.State -eq "available") {
+          Write-Host "Deleting volume: $($volume.VolumeId)"
+          aws ec2 delete-volume --volume-id $volume.VolumeId
+        }
+      }
+      echo "EBS volume cleanup completed"
+    EOT
+    interpreter = ["PowerShell", "-Command"]
+  }
+}
+
 module "vpc" {
   source = "../../modules/vpc"
   
@@ -71,28 +95,48 @@ resource "null_resource" "cleanup_kubernetes" {
   provisioner "local-exec" {
     when    = destroy
     command = <<-EOT
-      echo "Cleaning up Kubernetes resources..."
-      # Delete application resources
-      kubectl delete namespace wordpress --ignore-not-found=true --timeout=5m
+      echo "Starting comprehensive cleanup of Kubernetes and AWS resources..."
 
-      # Delete EKS addons
-      kubectl delete -f ../../k8s-manifests/aws-load-balancer-controller.yaml --ignore-not-found=true --timeout=5m
-      kubectl delete -f ../../k8s-manifests/efs/efs-csi-driver.yaml --ignore-not-found=true --timeout=5m
+      # Step 1: Delete application namespace and wait for completion
+      echo "Deleting WordPress namespace and waiting for completion..."
+      kubectl delete namespace wordpress --ignore-not-found=true --timeout=10m
+      
+      # Step 2: Delete all PVCs and PVs in the wordpress namespace
+      echo "Deleting PVCs and PVs..."
+      kubectl delete pvc --all -n wordpress --force --grace-period=0 --timeout=5m
+      kubectl delete pv --all --force --grace-period=0 --timeout=5m
+
+      # Step 3: Delete EKS addons with increased timeout
+      echo "Deleting EKS addons..."
+      kubectl delete -f ../../k8s-manifests/aws-load-balancer-controller.yaml --ignore-not-found=true --timeout=10m
+      kubectl delete -f ../../k8s-manifests/efs/efs-csi-driver.yaml --ignore-not-found=true --timeout=10m
       kubectl delete -f ../../k8s-manifests/efs/efs-storageclass.yaml --ignore-not-found=true --timeout=5m
 
-      # Wait for loadbalancer resources to be deleted
-      echo "Waiting for LoadBalancer resources to be deleted..."
-      kubectl get svc -A | Select-String -Pattern "LoadBalancer" | ForEach-Object {
-        $ns = $_.ToString().Split()[0]
-        $svc = $_.ToString().Split()[1]
-        kubectl delete svc $svc -n $ns --timeout=5m
+      # Step 4: Handle Load Balancers
+      echo "Cleaning up Load Balancers..."
+      kubectl get svc -A -o json | ConvertTo-Json | Select-String -Pattern '"type": "LoadBalancer"' | ForEach-Object {
+        $svcJson = $_.ToString() | ConvertFrom-Json
+        kubectl delete svc $svcJson.metadata.name -n $svcJson.metadata.namespace --timeout=5m
       }
 
-      # Remove finalizers from any stuck resources
-      echo "Cleaning up any stuck resources..."
-      kubectl get namespace wordpress -o json | ConvertTo-Json | ForEach-Object { $_ -replace '"finalizers": \[[^\]]*\]', '"finalizers": []' } | kubectl replace --raw "/api/v1/namespaces/wordpress/finalize" -f -
+      # Step 5: Clean up stuck resources by removing finalizers
+      echo "Cleaning up stuck resources..."
+      kubectl get namespace wordpress -o json | ConvertTo-Json | ForEach-Object { 
+        $_ -replace '"finalizers": \[[^\]]*\]', '"finalizers": []' 
+      } | kubectl replace --raw "/api/v1/namespaces/wordpress/finalize" -f - 2>$null
 
-      echo "Kubernetes resources cleanup completed"
+      # Step 6: Clean up any orphaned EBS volumes
+      echo "Cleaning up orphaned EBS volumes..."
+      $volumes = aws ec2 describe-volumes --filters "Name=tag-key,Values=kubernetes.io/created-for/pvc/namespace" "Name=tag-value,Values=wordpress" | ConvertFrom-Json
+      foreach ($volume in $volumes.Volumes) {
+        aws ec2 delete-volume --volume-id $volume.VolumeId
+      }
+
+      # Step 7: Wait for all resources to be fully deleted
+      echo "Waiting for all resources to be fully deleted..."
+      Start-Sleep -Seconds 30
+
+      echo "Cleanup completed successfully"
     EOT
     interpreter = ["PowerShell", "-Command"]
   }
