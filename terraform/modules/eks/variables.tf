@@ -85,3 +85,9 @@ variable "tags" {
   type        = map(string)
   default     = {}
 }
+
+variable "ebs_csi_driver_version" {
+  description = "EBS CSI Driver addon version"
+  type        = string
+  default     = "v1.19.0-eksbuild.2"
+}

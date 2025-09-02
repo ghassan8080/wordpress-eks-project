@@ -15,25 +15,7 @@ variable "db_password" {
   description = "RDS database password"
   type        = string
   sensitive   = true
-  default     = "ChangeMe123!"
-}
-
-variable "db_instance_class" {
-  description = "RDS instance class"
-  type        = string
-  default     = "db.t3.micro"
-}
-
-variable "db_allocated_storage" {
-  description = "RDS allocated storage in GB"
-  type        = number
-  default     = 20
-}
-
-variable "wordpress_replicas" {
-  description = "Number of WordPress replicas"
-  type        = number
-  default     = 2
+  default     = "wordpress123"  # Only for testing
 }
 
 variable "project_name" {
@@ -75,7 +57,7 @@ variable "single_nat_gateway" {
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "1.28"
+  default     = "1.27"  # Changed to 1.27 which is stable and supports AL2_x86_64
 }
 
 variable "capacity_type" {
@@ -102,20 +84,51 @@ variable "disk_size" {
   default     = 20
 }
 
+variable "min_size" {
+  description = "Minimum size of the Node Group"
+  type        = number
+  default     = 1
+}
+
+variable "max_size" {
+  description = "Maximum size of the Node Group"
+  type        = number
+  default     = 3
+}
+
 variable "desired_size" {
-  description = "Desired number of worker nodes"
+  description = "Desired size of the Node Group"
   type        = number
   default     = 2
 }
 
-variable "max_size" {
-  description = "Maximum number of worker nodes"
-  type        = number
-  default     = 4
+variable "key_pair_name" {
+  description = "Name of the EC2 key pair to use for SSH access to worker nodes"
+  type        = string
+  default     = null
 }
 
-variable "min_size" {
-  description = "Minimum number of worker nodes"
-  type        = number
-  default     = 1
+variable "efs_csi_driver_version" {
+  description = "Version of the EFS CSI driver to install"
+  type        = string
+  default     = "v1.5.8-eksbuild.1"  # Check for the latest version
 }
+
+variable "db_instance_class" {
+  description = "RDS instance class"
+  type        = string
+  default     = "db.t3.micro"
+}
+
+variable "db_allocated_storage" {
+  description = "RDS allocated storage in GB"
+  type        = number
+  default     = 20
+}
+
+variable "private_subnet_cidrs" {
+  description = "CIDR blocks for private subnets"
+  type        = list(string)
+  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+}
+

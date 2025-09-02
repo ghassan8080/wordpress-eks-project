@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress-test
+  namespace: wordpress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wordpress-test
+  template:
+    metadata:
+      labels:
+        app: wordpress-test
+    spec:
+      initContainers:
+      - name: db-check
+        image: mysql:5.7
+        command: ['sh', '-c', 'until mysql -h $WORDPRESS_DB_HOST -u $WORDPRESS_DB_USER -p$WORDPRESS_DB_PASSWORD $WORDPRESS_DB_NAME -e "SELECT 1"; do echo waiting for database; sleep 2; done']
+        envFrom:
+        - secretRef:
+            name: wordpress-db-secret
+      containers:
+      - name: wordpress
+        image: wordpress:latest
+        envFrom:
+        - secretRef:
+            name: wordpress-db-secret
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: wordpress-data
+          mountPath: /var/www/html
+      volumes:
+      - name: wordpress-data
+        persistentVolumeClaim:
+          claimName: wordpress-pv-claim

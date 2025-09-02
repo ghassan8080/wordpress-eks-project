@@ -6,7 +6,7 @@ output "cluster_endpoint" {
 
 output "cluster_name" {
   description = "Kubernetes Cluster Name"
-  value       = module.eks.cluster_name
+  value       = var.cluster_name
 }
 
 output "vpc_id" {
@@ -14,18 +14,14 @@ output "vpc_id" {
   value       = module.vpc.vpc_id
 }
 
-output "private_subnets" {
+output "private_subnet_ids" {
   description = "Private subnet IDs"
-  value       = module.vpc.private_subnets
+  value       = module.vpc.private_subnet_ids
 }
 
 output "db_instance_endpoint" {
   description = "RDS instance endpoint"
   value       = aws_db_instance.wordpress.endpoint
-}
-
-output "wordpress_service_url" {
-  description = "WordPress service URL"
-  value       = "http://${kubernetes_service.wordpress.load_balancer_ingress[0].hostname}"
+  sensitive   = true
 }
 

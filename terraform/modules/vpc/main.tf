@@ -4,9 +4,9 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# Take only the first three AZs if available
+# Take only the first two AZs if available
 locals {
-  azs = slice(data.aws_availability_zones.available.names, 0, 3)
+  azs = slice(data.aws_availability_zones.available.names, 0, var.public_subnet_count)
 }
 
 

@@ -19,14 +19,28 @@ spec:
         image: mysql:8.0
         env:
         - name: MYSQL_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mysql-secret
-              key: password
+          value: "wordpress123"  # Test environment only - do not use in production
         - name: MYSQL_DATABASE
           value: wordpress
         ports:
         - containerPort: 3306
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          tcpSocket:
+            port: 3306
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 3306
+          initialDelaySeconds: 5
+          periodSeconds: 10
         volumeMounts:
         - name: mysql-persistent-storage
           mountPath: /var/lib/mysql

@@ -57,6 +57,45 @@ module "vpc" {
     Environment = var.environment
     Project    = var.project_name
   }
+
+  depends_on = [null_resource.cleanup_kubernetes]
+}
+
+# Cleanup Kubernetes resources before destroying the cluster
+resource "null_resource" "cleanup_kubernetes" {
+  triggers = {
+    cluster_name = var.cluster_name
+    region       = var.aws_region
+  }
+
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOT
+      echo "Cleaning up Kubernetes resources..."
+      # Delete application resources
+      kubectl delete namespace wordpress --ignore-not-found=true --timeout=5m
+
+      # Delete EKS addons
+      kubectl delete -f ../../k8s-manifests/aws-load-balancer-controller.yaml --ignore-not-found=true --timeout=5m
+      kubectl delete -f ../../k8s-manifests/efs/efs-csi-driver.yaml --ignore-not-found=true --timeout=5m
+      kubectl delete -f ../../k8s-manifests/efs/efs-storageclass.yaml --ignore-not-found=true --timeout=5m
+
+      # Wait for loadbalancer resources to be deleted
+      echo "Waiting for LoadBalancer resources to be deleted..."
+      kubectl get svc -A | Select-String -Pattern "LoadBalancer" | ForEach-Object {
+        $ns = $_.ToString().Split()[0]
+        $svc = $_.ToString().Split()[1]
+        kubectl delete svc $svc -n $ns --timeout=5m
+      }
+
+      # Remove finalizers from any stuck resources
+      echo "Cleaning up any stuck resources..."
+      kubectl get namespace wordpress -o json | ConvertTo-Json | ForEach-Object { $_ -replace '"finalizers": \[[^\]]*\]', '"finalizers": []' } | kubectl replace --raw "/api/v1/namespaces/wordpress/finalize" -f -
+
+      echo "Kubernetes resources cleanup completed"
+    EOT
+    interpreter = ["PowerShell", "-Command"]
+  }
 }
 
 
@@ -68,8 +107,10 @@ module "eks" {
   private_subnet_ids = module.vpc.private_subnet_ids
   public_subnet_ids  = module.vpc.public_subnet_ids
   
+  depends_on = [null_resource.cleanup_kubernetes]
+  
   kubernetes_version = var.kubernetes_version
-No declaration found for "var.kubernetes_version"Terraform  capacity_type      = var.capacity_type
+  capacity_type      = var.capacity_type
   instance_types     = var.instance_types
   ami_type           = var.ami_type
   disk_size          = var.disk_size
@@ -90,21 +131,13 @@ No declaration found for "var.kubernetes_version"Terraform  capacity_type      =
 #   depends_on = [module.vpc]
 # }
 
-# module "efs" {
-#   source = "../../modules/efs"
-  
-#   project_name      = var.project_name
-#   vpc_id           = module.vpc.vpc_id
-#   private_subnet_ids = module.vpc.private_subnet_ids
-# }
-
 module "efs" {
   source = "../../modules/efs"
   
-  project_name      = var.project_name
-  vpc_id           = module.vpc.vpc_id
-  private_subnet_ids = module.vpc.private_subnet_ids
-  private_subnet_count = length(module.vpc.private_subnet_ids)
+  project_name            = var.project_name
+  vpc_id                 = module.vpc.vpc_id
+  private_subnet_ids     = module.vpc.private_subnet_ids
+  private_subnet_count   = length(module.vpc.private_subnet_ids)
   node_security_group_id = module.eks.node_group_security_group_id
   allow_nodes_sg_ingress = true
   

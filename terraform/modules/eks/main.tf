@@ -1,5 +1,7 @@
 # terraform/modules/eks/main.tf
 
+data "aws_region" "current" {}
+
 # EKS Cluster IAM Role
 resource "aws_iam_role" "cluster" {
   name = "${var.cluster_name}-cluster-role"
@@ -94,6 +96,14 @@ resource "aws_security_group_rule" "cluster_ingress_workstation_https" {
 resource "aws_security_group" "node_group" {
   name_prefix = "${var.cluster_name}-node-group-sg"
   vpc_id      = var.vpc_id
+
+  ingress {
+    description = "Allow HTTP from internet"
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
 
   ingress {
     from_port = 0
@@ -197,7 +207,7 @@ resource "aws_eks_node_group" "main" {
 
   capacity_type  = var.capacity_type
   instance_types = var.instance_types
-  ami_type       = var.ami_type
+  ami_type       = "AL2023_x86_64_STANDARD"  # Using Amazon Linux 2023 which is fully supported
   disk_size      = var.disk_size
 
   scaling_config {
@@ -254,9 +264,33 @@ resource "aws_iam_role" "efs_csi_driver" {
 }
 
 
+# Create EFS CSI Driver Policy
+resource "aws_iam_policy" "efs_csi_driver" {
+  name        = "${var.cluster_name}-efs-csi-driver-policy"
+  description = "EFS CSI driver policy"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "elasticfilesystem:DescribeAccessPoints",
+          "elasticfilesystem:DescribeFileSystems",
+          "elasticfilesystem:DescribeMountTargets",
+          "elasticfilesystem:CreateAccessPoint",
+          "elasticfilesystem:DeleteAccessPoint",
+          "ec2:DescribeAvailabilityZones"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role_policy_attachment" "efs_csi_driver" {
   role       = aws_iam_role.efs_csi_driver.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_EFS_CSI_Driver_Policy"
+  policy_arn = aws_iam_policy.efs_csi_driver.arn
 }
 
 # OIDC Provider
@@ -285,19 +319,3 @@ resource "aws_eks_addon" "efs_csi_driver" {
 
   tags = var.tags
 }
-
-
-
-    min_size     = 1
-    max_size     = 3
-    desired_size = 2
-    instance_types = ["t3.medium"]
-    
-    # Add these tags for proper EKS node identification
-    tags = {
-      "k8s.io/cluster-autoscaler/enabled" = "true"
-      "k8s.io/cluster-autoscaler/${var.cluster_name}" = "true"
-    }
-  }
-}
-
