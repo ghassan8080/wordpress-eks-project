@@ -8,17 +8,19 @@ A production-ready WordPress deployment on Amazon EKS with MySQL database, Redis
 ┌─────────────────────────────────────────────────────────────────┐
 │                          AWS Cloud                             │
 ├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────────────────────────────────┐    │
-│  │   VPC       │  │              EKS Cluster                │    │
-│  │             │  │  ┌─────────────┐  ┌─────────────────────┐│    │
-│  │ ┌─────────┐ │  │  │  WordPress  │  │      MySQL          ││    │
-│  │ │ ALB     │ │  │  │  (2 pods)   │  │   (Persistent)      ││    │
-│  │ └─────────┘ │  │  └─────────────┘  └─────────────────────┘│    │
-│  │             │  │  ┌─────────────┐                        │    │
-│  │ ┌─────────┐ │  │  │   Redis     │     ┌─────────────────┐│    │
-│  │ │   EFS   │ │  │  │  (Cache)    │     │   EFS Storage   ││    │
-│  │ └─────────┘ │  │  └─────────────┘     │   (WordPress)   ││    │
-│  └─────────────┘  └─────────────────────────────────────────┘    │
+│  ┌─────────────┐  ┌─────────────────────────────────────────┐   │
+│  │   VPC       │  │              EKS Cluster                │   │
+│  │ (terraform/ │  │ (terraform/modules/eks + k8s-manifests/)│   │
+│  │ modules/vpc)|  │                                         │   │
+│  │ ┌─────────┐ │  │  ┌─────────────┐  ┌─────────────────────┐│   │
+│  │ │  ALB    │ │  │  │ WordPress   │  │      MySQL         ││   │
+│  │ └─────────┘ │  │  │(k8s/wordpress)│ │ (k8s/mysql)       ││   │
+│  │             │  │  └─────────────┘  └─────────────────────┘│   │
+│  │ ┌─────────┐ │  │  ┌─────────────┐                        │   │
+│  │ │  EFS    │ │  │  │   Redis     │     ┌─────────────────┐│   │
+│  │ └─────────┘ │  │  │(k8s/redis)  │     │  EFS Storage    ││   │
+│  │             │  │  └─────────────┘     │  (k8s/efs)      ││   │
+│  └─────────────┘  └─────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -131,26 +133,21 @@ kubectl get ingress wordpress-ingress -n wordpress
 
 ```
 wordpress-eks-project/
-├── .github/workflows/           # GitHub Actions workflows
-│   ├── deploy-infrastructure.yml
-│   ├── deploy-wordpress.yml
-│   └── destroy-infrastructure.yml
-├── terraform/                   # Infrastructure as Code
-│   ├── modules/                # Reusable Terraform modules
-│   │   ├── vpc/               # VPC configuration
-│   │   ├── eks/               # EKS cluster setup
-│   │   └── efs/               # EFS file system
-│   └── environments/prod/     # Production environment
+├── archive/                    # Old/unused scripts, configs, and docs
+├── terraform/                  # Infrastructure as Code
+│   ├── modules/                # VPC, EKS, EFS modules
+│   └── environments/prod/      # Production environment configs
 ├── k8s-manifests/              # Kubernetes YAML files
 │   ├── namespace.yaml
-│   ├── mysql/                 # MySQL database
-│   ├── wordpress/             # WordPress application
-│   ├── redis/                 # Redis cache
-│   └── efs/                   # EFS storage classes
-├── scripts/                    # Utility scripts
+│   ├── mysql/                  # MySQL database manifests
+│   ├── wordpress/              # WordPress manifests
+│   ├── redis/                  # Redis cache manifests
+│   └── efs/                    # EFS storage classes
+├── scripts/                    # Utility scripts for deployment
 │   ├── setup-cluster.sh
+│   ├── deploy-infra.sh
 │   ├── deploy-wordpress.sh
-│   └── cleanup.sh
+│   └── destroy-infra.sh
 └── README.md
 ```
 
@@ -160,80 +157,66 @@ wordpress-eks-project/
 
 Edit `terraform/environments/prod/terraform.tfvars`:
 
-```hcl
-# Basic Configuration
-project_name = "wordpress-eks"
-environment  = "prod"
 aws_region   = "us-west-2"
+### 1. Clone and Configure
 
-# EKS Configuration
-kubernetes_version = "1.28"
-instance_types    = ["t3.medium"]
-desired_size      = 2
-max_size         = 4
-min_size         = 1
-
-# Network Configuration
-vpc_cidr               = "10.0.0.0/16"
-public_subnet_cidrs    = ["10.0.1.0/24", "10.0.2.0/24"]
-private_subnet_cidrs   = ["10.0.10.0/24", "10.0.20.0/24"]
-```
-
-### WordPress Configuration
-
-WordPress environment variables can be customized in:
-- `k8s-manifests/wordpress/wordpress-deployment.yaml`
-
-### Database Configuration
-
-MySQL settings can be modified in:
-- `k8s-manifests/mysql/mysql-deployment.yaml`
-
-## 🔧 Management Commands
-
-### Cluster Operations
 ```bash
-# Check cluster status
-./scripts/setup-cluster.sh status
-
-# Get access URL
-./scripts/setup-cluster.sh url
-
-# View all resources
-kubectl get all -n wordpress
-
-# Check WordPress logs
-kubectl logs -f deployment/wordpress -n wordpress
-
-# Check MySQL logs
-kubectl logs -f deployment/mysql -n wordpress
-```
-
-### Scaling Operations
-```bash
-# Scale WordPress pods
-kubectl scale deployment wordpress --replicas=3 -n wordpress
-
-# Scale EKS nodes (modify terraform/environments/prod/terraform.tfvars)
-# Then run terraform apply
-```
-
-### Backup Operations
-```bash
-# Backup MySQL database
-kubectl exec -n wordpress deployment/mysql -- \
-  mysqldump -uroot -p$MYSQL_ROOT_PASSWORD wordpress > wordpress-backup.sql
-
-# Restore database
-kubectl exec -i -n wordpress deployment/mysql -- \
-  mysql -uroot -p$MYSQL_ROOT_PASSWORD wordpress < wordpress-backup.sql
-```
-
-## 🔒 Security Best Practices
-
-### Network Security
-- ✅ Private subnets for worker nodes
+# Clone the repository
 - ✅ Security groups with minimal required access
+cd wordpress-eks-project
+
+# Make scripts executable (Linux/WSL)
+chmod +x scripts/*.sh
+
+# Configure your environment
+cp terraform/environments/prod/terraform.tfvars.example terraform/environments/prod/terraform.tfvars
+# Edit the file with your specific values
+```
+
+### 2. Manual Deployment (Terraform & kubectl)
+
+#### Deploy Infrastructure
+```bash
+# Initialize Terraform
+cd terraform/environments/prod
+terraform init
+
+# Plan and apply infrastructure
+terraform plan
+terraform apply
+```
+
+#### Deploy Kubernetes Resources
+```bash
+# Configure kubectl for EKS
+aws eks update-kubeconfig --region <your-region> --name <your-cluster-name>
+
+# Apply Kubernetes manifests
+kubectl apply -f ../../../../k8s-manifests/namespace.yaml
+kubectl apply -f ../../../../k8s-manifests/mysql/
+kubectl apply -f ../../../../k8s-manifests/wordpress/
+kubectl apply -f ../../../../k8s-manifests/redis/
+kubectl apply -f ../../../../k8s-manifests/efs/
+```
+
+#### Access Your Site
+```bash
+# Get the access URL
+kubectl get ingress wordpress-ingress -n wordpress
+```
+
+#### Destroy Infrastructure
+```bash
+# Destroy Kubernetes resources
+kubectl delete -f ../../../../k8s-manifests/wordpress/
+kubectl delete -f ../../../../k8s-manifests/mysql/
+kubectl delete -f ../../../../k8s-manifests/redis/
+kubectl delete -f ../../../../k8s-manifests/efs/
+kubectl delete namespace wordpress
+
+# Destroy AWS infrastructure
+terraform destroy
+```
 - ✅ VPC endpoints for AWS services
 
 ### Data Security
